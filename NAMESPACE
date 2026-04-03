@@ -1,0 +1,16 @@
+useDynLib(FLicc)
+
+import("TMB")
+import("FLCore")
+import("ggplotFL")
+import("ggplot2")
+
+importFrom("statmod", "gauss.quad")
+importFrom("methods", "as")
+importFrom("stats", "dnorm", "nlminb")
+importFrom("utils", "data")
+
+export(dat_tmb_flicc)
+export(init_tmb_flicc)
+export(fiticc)
+export(plot_fiticc)
