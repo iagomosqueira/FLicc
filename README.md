@@ -12,32 +12,32 @@ The purpose of `FLicc` is to provide a practical and extensible TMB implementati
 
 ## Multi-gear focus
 
-A central feature of `FLicc` is support for **multiple gears in a single equilibrium fit**. Gear-specific selectivity and fishing mortality can be estimated jointly while sharing the same underlying population and growth assumptions. This follows the motivation of the original fishblicc framework, which was developed specifically to analyse **length data from multi-gear fisheries**. :contentReference[oaicite:2]{index=2}
+A central feature of `FLicc` is support for **multiple gears in a single equilibrium fit**. Gear-specific selectivity and fishing mortality can be estimated jointly while sharing the same underlying population and growth assumptions. This follows the motivation of the original fishblicc framework, which was developed specifically to analyse **length data from multi-gear fisheries**. 
 
 In practical terms, this means `FLicc` is designed to:
 - fit multiple observed length-frequency samples simultaneously,
 - estimate gear-specific fishing mortality parameters,
 - estimate gear-specific selectivity curves,
-- and use relative catch information to help identify fishing mortality across gears. :contentReference[oaicite:3]{index=3}
+- and use relative catch information to help identify fishing mortality across gears. 
 
 ## Main assumptions
 
 The current implementation follows the main equilibrium assumptions of the original fishblicc formulation:
 
 1. **Approximate steady state**  
-   The population is assumed to have been in approximate equilibrium for at least around a generation near the time of sampling, so the model is not a time-series model. :contentReference[oaicite:4]{index=4}
+   The population is assumed to have been in approximate equilibrium for at least around a generation near the time of sampling, so the model is not a time-series model.
+   
+3. **von Bertalanffy mean growth**  
+   Mean growth is assumed to follow the von Bertalanffy growth curve.
 
-2. **von Bertalanffy mean growth**  
-   Mean growth is assumed to follow the von Bertalanffy growth curve. :contentReference[oaicite:5]{index=5}
+4. **Variability in asymptotic length**  
+   The original fishblicc formulation represents individual variability in asymptotic size, and the TMB implementation follows this core idea through the fishblicc-style population-at-length recursion. 
 
-3. **Variability in asymptotic length**  
-   The original fishblicc formulation represents individual variability in asymptotic size, and the TMB implementation follows this core idea through the fishblicc-style population-at-length recursion. :contentReference[oaicite:6]{index=6}
+5. **Parametric selectivity**  
+   Selectivity is represented through parametric functions. The original implementation highlights logistic, normal, and double-sided normal forms, and the current `FLicc` TMB implementation focuses first on the forms needed for replication work, especially logistic and double-sided normal. 
 
-4. **Parametric selectivity**  
-   Selectivity is represented through parametric functions. The original implementation highlights logistic, normal, and double-sided normal forms, and the current `FLicc` TMB implementation focuses first on the forms needed for replication work, especially logistic and double-sided normal. :contentReference[oaicite:7]{index=7}
-
-5. **Length-frequency and relative catch information**  
-   The model uses length-frequency data, together with relative catch information among gears, to infer gear-specific fishing mortality and stock status in equilibrium. :contentReference[oaicite:8]{index=8}
+6. **Length-frequency and relative catch information**  
+   The model uses length-frequency data, together with relative catch information among gears, to infer gear-specific fishing mortality and stock status in equilibrium. 
 
 ## Current implementation
 
@@ -56,7 +56,7 @@ The current version of `FLicc` focuses on the core equilibrium fitting problem:
 To keep the first TMB implementation transparent and robust, several simplifications have been made relative to the original fishblicc package:
 
 1. **No full Bayesian MCMC workflow**  
-   The current package is fitted in TMB as a penalized-likelihood / MPD model rather than through the full Bayesian `rstan` workflow used in the original fishblicc implementation. :contentReference[oaicite:10]{index=10}
+   The current package is fitted in TMB as a penalized-likelihood / MPD model rather than through the full Bayesian `rstan` workflow used in the original fishblicc implementation.
 
 2. **Single-period scope**  
    The present implementation targets the equilibrium single-period case first.
