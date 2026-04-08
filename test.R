@@ -1,8 +1,6 @@
 
 library(FLicc)
-
-
-
+data("alfonsino")
 
 lhpar <- FLPar(
   linf = 55.7,
@@ -14,7 +12,8 @@ lhpar <- FLPar(
   s    = 0.7
 )
 
-stklen <- stocklen(lfds,lhpar)
+lfds<- lfd_alfonsino
+stklen <- stocklen(lfd,lhpar)
 
 lfd_mu = FLQuants(lapply(lfds,function(x){
   yearSums(x[,ac(2022)])
@@ -22,10 +21,8 @@ lfd_mu = FLQuants(lapply(lfds,function(x){
 
 
 stklen <- stocklen(lfds,lhpar,m_model = "constant")
-lfd=lfds
 fit <- fiticc(lfd,stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear = c(0.78,0.22),settings=list(CVL=0.1,GL=50,catch.sd=0.05))
 
-fit <- fiticc(lfd,stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear = c(0.75,0.25),settings=list(CVL=0.1,GL=50,catch.sd=0.05))
 
 plot_fiticc(fit)
 plot_plen(fit)
