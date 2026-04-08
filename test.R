@@ -13,26 +13,18 @@ lhpar <- FLPar(
 )
 
 lfds<- lfd_alfonsino
-stklen <- stocklen(lfd,lhpar)
+stklen <- stocklen(lfds,lhpar)
 
-lfd_mu = FLQuants(lapply(lfds,function(x){
-  yearSums(x[,ac(2022)])
-}))
+plot_lfd(lfds,type="relmax")
 
 
-stklen <- stocklen(lfds,lhpar,m_model = "constant")
-fit <- fiticc(lfd,stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear = c(0.78,0.22),settings=list(CVL=0.1,GL=50,catch.sd=0.05))
+fit <- fiticc(lfds,stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear = c(0.78,0.22),settings=list(CVL=0.1,GL=50,catch.sd=0.05))
 
-
-plot_fiticc(fit)
 plot_plen(fit)
 plot_plen(fit,by_gear=T)
 matplot(fit$tmb_data$Lmid,fit$report$Sel,type="l",lwd=2)
 fit$report$spr
 
-
-
-plotAdvice(iter(om,1))
 
 
 
