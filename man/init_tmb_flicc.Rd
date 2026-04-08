@@ -31,10 +31,21 @@ Initial values are currently set as follows:
 observed modal length and default spread values
 }
 
+Selectivity parameters are stored in a packed vector \code{Sm}, with the
+meaning depending on selectivity type.
+
 For logistic selectivity, the packed parameter block is
-\code{c(L50, log_steep)}.
+\code{c(log_SL50_rel, log_dSL_rel)}, where \code{SL50 = exp(log_SL50_rel) * Linf}
+and \code{SL95 = SL50 + exp(log_dSL_rel) * Linf}.
+
+For normal selectivity, the packed parameter block is
+\code{c(log_mode_rel, log_sd_rel)}, where \code{mode = exp(log_mode_rel) * Linf}
+and \code{sd = exp(log_sd_rel) * Linf}.
+
 For double-sided normal selectivity, the packed parameter block is
-\code{c(mode, log_lsd, log_rsd)}.
+\code{c(log_mode_rel, log_lsd_rel, log_rsd_rel)}, where
+\code{mode = exp(log_mode_rel) * Linf}, \code{lsd = exp(log_lsd_rel) * Linf},
+and \code{rsd = exp(log_rsd_rel) * Linf}.
 }
 \examples{
 \dontrun{

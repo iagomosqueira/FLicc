@@ -4,58 +4,37 @@
 \alias{fiticc}
 \title{Fit the FLicc TMB model}
 \usage{
-fiticc(dl, compile = TRUE, silent = TRUE, dll = "FLicc")
+fiticc(
+  lfd,
+  stklen,
+  sel_fun = c("logistic", "normal", "dsnormal"),
+  catch_by_gear,
+  settings = list(CVL = 0.1, GL = 50, catch.sd = 0.05),
+  compile = FALSE,
+  silent = TRUE,
+  dll = "FLicc",
+  sel_fixed = NULL
+)
 }
 \arguments{
-\item{dl}{A named input list defining the FLicc model data and settings.
-Passed to \code{data_tmb_flicc()}.}
-
 \item{compile}{Logical. If \code{TRUE}, the C++ template is recompiled before
-fitting. Default is \code{TRUE}.}
+fitting. Default is \code{FALSE}.}
 
 \item{silent}{Logical. Passed to \code{TMB::MakeADFun()}. Default is
 \code{TRUE}.}
 
 \item{dll}{Character string giving the base name of the TMB dynamic library.
-Default is \code{"fishblicc_tmb"}.}
+Default is \code{"FLicc"}.}
+
+\item{sel_fixed}{Optional named list of fixed selectivity values passed to
+\code{apply_sel_fixed_flicc()}.}
+
+\item{dl}{A named input list defining the FLicc model data and settings.}
 }
 \value{
-An object of class \code{"blicc_tmb_fit"}, a list containing:
-\describe{
-\item{\code{opt}}{The \code{nlminb} optimization result.}
-\item{\code{obj}}{The TMB ADFun object.}
-\item{\code{rep}}{The \code{sdreport} object.}
-\item{\code{par}}{A tibble of fixed-effect estimates and standard errors.}
-\item{\code{report}}{A named list of reported quantities from the C++
-template.}
-\item{\code{tmb_data}}{The TMB data list used for the fit.}
-}
+An object of class \code{"flicc_tmb_fit"}.
 }
 \description{
 Compiles, loads, and fits the FLicc TMB objective function to a single
-equilibrium multi-gear length dataset. The function prepares the TMB data and
-parameter lists, optionally recompiles the C++ template, fixes selected
-biological parameters via a TMB map, runs numerical optimization, and returns
-fitted parameters together with reported model outputs.
-}
-\details{
-The current implementation fixes \code{log_Linf} and \code{log_Mk} through a
-TMB map. Optimization is performed with \code{stats::nlminb()}, and standard
-errors are obtained from \code{TMB::sdreport()}.
-
-Returned reported quantities depend on the C++ template, but typically include
-fitted fishing mortalities by gear, selectivity, mortality-at-length,
-population-at-length, expected counts, and SPR-related outputs.
-}
-\examples{
-\dontrun{
-fit <- fiticc(dl, compile = FALSE)
-fit$par
-fit$report$Fk
-fit$report$spr
-}
-
-}
-\seealso{
-\code{\link{data_tmb_flicc}}, \code{\link{init_tmb_flicc}}
+equilibrium multi-gear length dataset.
 }

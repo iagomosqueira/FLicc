@@ -14,6 +14,10 @@
 #'     \item{\code{sel_fun}}{Character vector of selectivity functions by gear.
 #'       Currently supported: \code{"logistic"} and \code{"dsnormal"}.}
 #'     \item{\code{Catch}}{Numeric vector of relative catch proportions by gear.}
+#'     \item{\code{catch_sd}}{Optional scalar controlling the strength of the
+#'       log-ratio penalty linking modeled gear proportions to relative catch
+#'       proportions. Smaller values imply stronger anchoring. Default is
+#'       \code{0.01}.}
 #'     \item{\code{gear_names}}{Optional character vector of gear names.}
 #'     \item{\code{model_name}}{Character string used to identify the mortality
 #'       model. If it contains \code{"length-inverse"}, inverse-length natural
@@ -52,7 +56,7 @@
 #'       bookkeeping objects for the TMB template.}
 #'     \item{\code{node}, \code{quad_wt}}{Gauss-Laguerre quadrature nodes and
 #'       weights.}
-#'     \item{\code{prior_mu}, \code{prior_sd}, \code{prior_code}}{Optional prior
+#'     \item{\code{prior_mu}, \code{prior_sd}, \code{prior_code},\code{catch_sd}}{Optional prior
 #'       specification vectors.}
 #'     \item{\code{Linf_init}, \code{Mk_init}}{Initial values for fixed or
 #'       estimated biological parameters.}
@@ -82,6 +86,13 @@ data_tmb_flicc <- function(dl) {
     }
   }
 
+  # ---- catch-weight penalty SD ----
+  catch_sd <- if (!is.null(dl$catch.sd)) as.numeric(dl$catch.sd) else 0.05
+
+  if (length(catch_sd) != 1 || !is.finite(catch_sd) || catch_sd <= 0) {
+    stop("dl$catch_sd must be a single positive numeric value")
+  }
+
   obs <- do.call(cbind, lapply(dl$fq, as.numeric))
   colnames(obs) <- gear_names
 
@@ -95,10 +106,7 @@ data_tmb_flicc <- function(dl) {
   step <- c(diff(LLB), tail(diff(LLB), 1))
   Lmid <- LLB + step / 2
 
-  # ---- biology for SPR ----
-  a_wl    <- if (!is.null(dl$a)) as.numeric(dl$a) else 1
-  b_wl    <- if (!is.null(dl$b)) as.numeric(dl$b) else 3
-  L50_mat <- if (!is.null(dl$L50)) as.numeric(dl$L50) else stats::median(Lmid)
+
 
   # ---- selectivity ----
   sel_fun <- dl$sel_fun
@@ -106,26 +114,29 @@ data_tmb_flicc <- function(dl) {
     stop("length(sel_fun) must equal number of gears")
 
   sel_type <- ifelse(sel_fun == "logistic", 1L,
-                     ifelse(sel_fun == "dsnormal", 2L, NA_integer_))
+                     ifelse(sel_fun == "dsnormal", 2L,
+                            ifelse(sel_fun %in% c("normal"), 3L,
+                                   NA_integer_)))
+
   if (any(is.na(sel_type))) {
-    stop("Only logistic and dsnormal supported in this TMB prototype")
+    stop("Supported selectivity options are: logistic, dsnormal, normal")
   }
 
-  sm_n <- ifelse(sel_fun == "logistic", 2L, 3L)
+  sm_n <- ifelse(sel_fun == "logistic", 2L,
+                 ifelse(sel_fun == "dsnormal", 3L,
+                        ifelse(sel_fun %in% c("normal"), 2L,
+                               NA_integer_)))
   sm_start <- cumsum(c(0L, head(sm_n, -1L)))  # already 0-based for C++
 
   stopifnot(all(sm_start >= 0))
   stopifnot(all(sm_start + sm_n <= sum(sm_n)))
 
   # ---- catch weights ----
-  catch_wt <- as.numeric(dl$Catch)
+  catch_wt <- as.numeric(dl$catch_by_gear)
   if (length(catch_wt) != ngear)
     stop("length(Catch) must equal number of gears")
   catch_wt <- catch_wt / sum(catch_wt)
 
-  # ---- mortality model ----
-  M_model <- if (grepl("length-inverse", tolower(dl$model_name))) 2L else 1L
-  ref_length <- if (!is.null(dl$ref_length)) as.numeric(dl$ref_length) else mean(Lmid)
 
   # ---- quadrature inputs for pop_len_glq ----
   # Adjust these names if fishblicc stores them differently
@@ -145,45 +156,55 @@ data_tmb_flicc <- function(dl) {
     stop("node and quad_wt must have the same length")
   }
 
-  # ---- fixed-value / init extraction ----
-  # Linf can be c(mean, sd) or similar
-  if (is.null(dl$Linf))
-    stop("dl$Linf not found")
+  # ---- biological inputs ----
 
+  if (is.null(dl$Linf)) stop("dl$Linf not found")
   Linf_init <- as.numeric(dl$Linf[1])
 
-  # Mk can be scalar or c(mean, sd)
-  if (is.null(dl$Mk))
-    stop("dl$Mk not found")
-
+  if (is.null(dl$Mk)) stop("dl$Mk not found")
   Mk_init <- as.numeric(dl$Mk[1])
 
-  # ---- simple prior scaffold on transformed scale ----
+  if (is.null(dl$CVL)) {
+    CVL_init <- 0.1
+    CVL_input <- 0.1
+  } else {
+    CVL_input <- dl$CVL
+    CVL_init <- as.numeric(CVL_input[1])
+  }
+
+  if (Linf_init <= 0) stop("Linf must be > 0")
+  if (Mk_init <= 0) stop("Mk must be > 0")
+  if (CVL_init <= 0) stop("CVL must be > 0")
+
+  Galpha_init <- 1 / CVL_init^2
+
+
   prior_mu <- numeric()
   prior_sd <- numeric()
   prior_code <- integer()
 
-  # codes:
   # 1 log_Linf
-  # 2 log_Galpha
-  # 3 log_Mk
-  # 4 log_phi
-  # 100+g log_Fk[g]
-  # 200+j Sm[j]
-
-  # only add Linf prior if uncertainty element exists
-  if (length(dl$Linf) >= 2 && !is.na(dl$Linf[2])) {
+  if (!is.null(dl$linf.sd)) {
     prior_mu   <- c(prior_mu, log(Linf_init))
-    prior_sd   <- c(prior_sd, as.numeric(dl$Linf[2]))
+    prior_sd   <- c(prior_sd, as.numeric(dl$linf.sd))
     prior_code <- c(prior_code, 1L)
   }
 
-  # only add Mk prior if uncertainty element exists
-  if (length(dl$Mk) >= 2 && !is.na(dl$Mk[2])) {
+  # 3 log_Mk
+  if (!is.null(dl$Mk.sd)) {
     prior_mu   <- c(prior_mu, log(Mk_init))
-    prior_sd   <- c(prior_sd, as.numeric(dl$Mk[2]))
+    prior_sd   <- c(prior_sd, as.numeric(dl$Mk.sd))
     prior_code <- c(prior_code, 3L)
   }
+
+  # 2 log_Galpha, derived from CVL prior
+  if (!is.null(dl$CVL.sd)){
+    prior_mu   <- c(prior_mu, -2 * log(CVL_init))
+    prior_sd   <- c(prior_sd,  2 * as.numeric(dl$CVL.sd))
+    prior_code <- c(prior_code, 2L)
+  }
+
+  Mscaler <- dl$mL/mean(dl$mL)
 
   list(
     nlen       = nlen,
@@ -192,25 +213,25 @@ data_tmb_flicc <- function(dl) {
     LLB        = as.numeric(LLB),
     obs        = unname(obs),
     catch_wt   = catch_wt,
+    catch_sd   = catch_sd,
     sel_type   = as.integer(sel_type),
     sm_start   = as.integer(sm_start),
     sm_n       = as.integer(sm_n),
-    ref_length = as.numeric(ref_length),
-    M_model    = as.integer(M_model),
-    a_wl       = a_wl,
-    b_wl       = b_wl,
-    L50_mat    = L50_mat,
+    Mscaler   =  as.numeric(Mscaler),
+    mat         = as.numeric(dl$mat),
+    wt         = as.numeric(dl$wt),
     node       = node,
     quad_wt    = quad_wt,
-    Linf_init  = Linf_init,
-    Mk_init    = Mk_init,
+    Linf_init   = Linf_init,
+    Mk_init     = Mk_init,
+    CVL_init    = CVL_init,
+    Galpha_init = Galpha_init,
     prior_mu   = as.numeric(prior_mu),
     prior_sd   = as.numeric(prior_sd),
     prior_code = as.integer(prior_code),
     gear_names = gear_names
   )
 }
-
 #' Generate initial parameter values for FLicc TMB fits
 #'
 #' Builds a named parameter list suitable for \code{TMB::MakeADFun()} from a
@@ -232,10 +253,21 @@ data_tmb_flicc <- function(dl) {
 #'     observed modal length and default spread values
 #' }
 #'
+#' Selectivity parameters are stored in a packed vector \code{Sm}, with the
+#' meaning depending on selectivity type.
+#'
 #' For logistic selectivity, the packed parameter block is
-#' \code{c(L50, log_steep)}.
+#' \code{c(log_SL50_rel, log_dSL_rel)}, where \code{SL50 = exp(log_SL50_rel) * Linf}
+#' and \code{SL95 = SL50 + exp(log_dSL_rel) * Linf}.
+#'
+#' For normal selectivity, the packed parameter block is
+#' \code{c(log_mode_rel, log_sd_rel)}, where \code{mode = exp(log_mode_rel) * Linf}
+#' and \code{sd = exp(log_sd_rel) * Linf}.
+#'
 #' For double-sided normal selectivity, the packed parameter block is
-#' \code{c(mode, log_lsd, log_rsd)}.
+#' \code{c(log_mode_rel, log_lsd_rel, log_rsd_rel)}, where
+#' \code{mode = exp(log_mode_rel) * Linf}, \code{lsd = exp(log_lsd_rel) * Linf},
+#' and \code{rsd = exp(log_rsd_rel) * Linf}.
 #'
 #' @return A named list of parameter vectors and scalars for use in
 #'   \code{TMB::MakeADFun()}.
@@ -253,99 +285,124 @@ init_tmb_flicc <- function(tmb_data) {
   sel_type <- tmb_data$sel_type
   Lmid     <- tmb_data$Lmid
   obs      <- tmb_data$obs
+  Linf     <- tmb_data$Linf_init
 
   Sm <- numeric(sum(tmb_data$sm_n))
   pos <- 1
 
   for (g in seq_len(ngear)) {
-    obs_g <- obs[, g]
+    obs_g  <- obs[, g]
     mode_g <- Lmid[which.max(obs_g)]
+    mode_rel <- max(mode_g / Linf, 1e-4)
 
     if (sel_type[g] == 1L) {
-      # logistic: L50, log_steep
-      Sm[pos:(pos + 1)] <- c(mode_g, log(0.3))
+      # logistic: c(log_SL50_rel, log_dSL_rel)
+      SL50_rel <- mode_rel
+      dSL_rel  <- 0.10
+      Sm[pos:(pos + 1)] <- c(log(SL50_rel), log(dSL_rel))
       pos <- pos + 2
 
     } else if (sel_type[g] == 2L) {
-      # dsnormal: mode, log_lsd, log_rsd
-      Sm[pos:(pos + 2)] <- c(mode_g, log(5), log(5))
+      # dsnormal: c(log_mode_rel, log_lsd_rel, log_rsd_rel)
+      lsd_rel <- 0.10
+      rsd_rel <- 0.10
+      Sm[pos:(pos + 2)] <- c(log(mode_rel), log(lsd_rel), log(rsd_rel))
       pos <- pos + 3
+
+    } else if (sel_type[g] == 3L) {
+      # normal: c(log_mode_rel, log_sd_rel)
+      sd_rel <- 0.10
+      Sm[pos:(pos + 1)] <- c(log(mode_rel), log(sd_rel))
+      pos <- pos + 2
     }
   }
 
   list(
     log_Linf   = log(tmb_data$Linf_init),
-    log_Galpha = log(20),
+    log_Galpha = log(tmb_data$Galpha_init),
     log_Mk     = log(tmb_data$Mk_init),
     log_Fk     = rep(log(0.5), ngear),
     Sm         = Sm,
-    log_phi    = log(20)
+    log_phi    = log(10)
   )
 }
-
 
 #' Fit the FLicc TMB model
 #'
 #' Compiles, loads, and fits the FLicc TMB objective function to a single
-#' equilibrium multi-gear length dataset. The function prepares the TMB data and
-#' parameter lists, optionally recompiles the C++ template, fixes selected
-#' biological parameters via a TMB map, runs numerical optimization, and returns
-#' fitted parameters together with reported model outputs.
+#' equilibrium multi-gear length dataset.
 #'
 #' @param dl A named input list defining the FLicc model data and settings.
-#'   Passed to \code{data_tmb_flicc()}.
 #' @param compile Logical. If \code{TRUE}, the C++ template is recompiled before
-#'   fitting. Default is \code{TRUE}.
+#'   fitting. Default is \code{FALSE}.
 #' @param silent Logical. Passed to \code{TMB::MakeADFun()}. Default is
 #'   \code{TRUE}.
 #' @param dll Character string giving the base name of the TMB dynamic library.
-#'   Default is \code{"fishblicc_tmb"}.
+#'   Default is \code{"FLicc"}.
+#' @param sel_fixed Optional named list of fixed selectivity values passed to
+#'   \code{apply_sel_fixed_flicc()}.
 #'
-#' @details
-#' The current implementation fixes \code{log_Linf} and \code{log_Mk} through a
-#' TMB map. Optimization is performed with \code{stats::nlminb()}, and standard
-#' errors are obtained from \code{TMB::sdreport()}.
-#'
-#' Returned reported quantities depend on the C++ template, but typically include
-#' fitted fishing mortalities by gear, selectivity, mortality-at-length,
-#' population-at-length, expected counts, and SPR-related outputs.
-#'
-#' @return An object of class \code{"blicc_tmb_fit"}, a list containing:
-#'   \describe{
-#'     \item{\code{opt}}{The \code{nlminb} optimization result.}
-#'     \item{\code{obj}}{The TMB ADFun object.}
-#'     \item{\code{rep}}{The \code{sdreport} object.}
-#'     \item{\code{par}}{A tibble of fixed-effect estimates and standard errors.}
-#'     \item{\code{report}}{A named list of reported quantities from the C++
-#'       template.}
-#'     \item{\code{tmb_data}}{The TMB data list used for the fit.}
-#'   }
-#'
-#' @examples
-#' \dontrun{
-#' fit <- fiticc(dl, compile = FALSE)
-#' fit$par
-#' fit$report$Fk
-#' fit$report$spr
-#' }
-#'
-#' @seealso \code{\link{data_tmb_flicc}}, \code{\link{init_tmb_flicc}}
+#' @return An object of class \code{"flicc_tmb_fit"}.
 #'
 #' @export
-fiticc <- function(dl,
+fiticc <- function(lfd, stklen,
+                   sel_fun = c("logistic","normal","dsnormal"),
+                   catch_by_gear,
+                   settings = list(CVL=0.1,GL=50,catch.sd=0.05),
                    compile = FALSE,
                    silent = TRUE,
-                   dll = "FLicc") {
+                   dll = "FLicc",
+                   sel_fixed = NULL){
 
   if (!requireNamespace("TMB", quietly = TRUE)) {
     stop("Package 'TMB' is required")
   }
-  if (!requireNamespace("tibble", quietly = TRUE)) {
-    stop("Package 'tibble' is required")
-  }
+
+
+
+  lens<- an(dimnames(lfd[[1]])$len)
+  yrs = an(dimnames(lfd[[1]])$year)
+  nyrs = length(yrs)
+  lhpar <- stklen@lhpar
+  syrs = an(dimnames(stklen)$year)
+
+  i = nyrs
+
+  stkl <- window(stklen,start=syrs[i],end=syrs[i])
+
+  fq <- lapply(lfd,function(x){
+    (as.data.frame(yearMeans(x[,ac(yrs[i])]))$data)
+  })
+  pars <- dimnames(lhpar)$params
+
+  dl <- list(
+    LLB = lens,
+    fq = fq,
+    sel_fun = sel_fun,
+    catch_by_gear= catch_by_gear,
+    gear_names = names(fq),
+    Linf = an(lhpar["linf"]),
+    Mk = an(lhpar["Mk"]),
+    wt = as.data.frame(catch.wt(stkl))$data,
+    mat= as.data.frame(mat(stkl))$data,
+    mL = as.data.frame(m(stkl))$data,
+    CVL=settings$CVL,
+    GL = settings$GL,
+    catch.sd = settings$catch.sd,
+    linf.sd =  settings$linf.sd,
+    Mk.sd =  settings$Mk.sd
+  )
 
   tmb_data <- data_tmb_flicc(dl)
   parameters <- init_tmb_flicc(tmb_data)
+
+  # Apply optional fixed selectivity settings
+  fix_res <- apply_sel_fixed_flicc(
+    parameters = parameters,
+    tmb_data   = tmb_data,
+    sel_fixed  = sel_fixed
+  )
+  parameters <- fix_res$parameters
 
   dll_path <- normalizePath(file.path("src", paste0(dll, ".dll")),
                             winslash = "/", mustWork = FALSE)
@@ -371,13 +428,31 @@ fiticc <- function(dl,
     dyn.load(dll_path)
   }
 
-  map <- list(
-    log_Linf = factor(NA),
-    log_Mk   = factor(NA)
-  )
+  map <- list()
+
+  # Fixed by default; estimated only if a log.sd is supplied
+  if (length(dl$Linf) < 2 || is.na(dl$Linf[2])) {
+    map$log_Linf <- factor(NA)
+  }
+
+  if (length(dl$Mk) < 2 || is.na(dl$Mk[2])) {
+    map$log_Mk <- factor(NA)
+  }
+
+  if (is.null(dl$CVL) || length(dl$CVL) < 2 || is.na(dl$CVL[2])) {
+    map$log_Galpha <- factor(NA)
+  }
+
+  # Optional fixed selectivity parameters
+  if (!is.null(fix_res$map_Sm)) {
+    map$Sm <- fix_res$map_Sm
+  }
+
+  if (length(map) == 0) map <- NULL
 
   obj <- TMB::MakeADFun(
-    data = tmb_data[setdiff(names(tmb_data), c("gear_names", "Linf_init", "Mk_init"))],
+    data = tmb_data[setdiff(names(tmb_data),
+                            c("gear_names", "Linf_init", "Mk_init", "CVL_init", "Galpha_init"))],
     parameters = parameters,
     map = map,
     DLL = dll,
@@ -417,4 +492,210 @@ fiticc <- function(dl,
     ),
     class = "flicc_tmb_fit"
   )
+}
+
+
+#' Apply fixed selectivity settings to FLicc parameters
+#'
+#' Updates the packed selectivity parameter vector \code{Sm} and builds a TMB
+#' mapping object for fixing selected selectivity parameters by gear. This
+#' provides a user-facing interface for constraining selectivity parameters on
+#' the natural length scale while retaining the internal relative-to-\code{Linf}
+#' parameterization used by the TMB model.
+#'
+#' @param parameters A named parameter list, typically produced by
+#'   \code{init_tmb_flicc()}, containing at least the packed selectivity vector
+#'   \code{Sm}.
+#' @param tmb_data A TMB data list produced by \code{data_tmb_flicc()}.
+#' @param sel_fixed An optional named list specifying fixed selectivity values by
+#'   gear. Names may be either gear names or character representations of gear
+#'   indices. Each element should itself be a list of fixed parameter values on
+#'   the natural length scale.
+#'
+#' @details
+#' The function allows users to fix selectivity parameters by gear without
+#' needing to work directly with the internal packed \code{Sm} vector.
+#'
+#' Supported user-facing selectivity inputs are:
+#'
+#' \strong{Logistic selectivity} (\code{sel_type == 1})
+#' \itemize{
+#'   \item \code{SL50}: length at 50 percent selectivity
+#'   \item \code{SL95}: length at 95 percent selectivity
+#'   \item \code{dSL}: difference \code{SL95 - SL50}
+#' }
+#'
+#' \strong{Normal selectivity} (\code{sel_type == 3})
+#' \itemize{
+#'   \item \code{mode}: modal length of selectivity
+#'   \item \code{sd}: standard deviation of the symmetric dome
+#' }
+#'
+#' \strong{Double-sided normal selectivity} (\code{sel_type == 2})
+#' \itemize{
+#'   \item \code{mode}: modal length of selectivity
+#'   \item \code{lsd}: left-side standard deviation
+#'   \item \code{rsd}: right-side standard deviation
+#' }
+#'
+#' Internally, all selectivity parameters are stored relative to \code{Linf} on
+#' the log scale. The function converts natural-scale user inputs to this
+#' internal parameterization and updates the TMB map so that selected values are
+#' held fixed during optimization.
+#'
+#' This makes it possible, for example, to:
+#' \itemize{
+#'   \item fix a logistic selectivity curve using \code{SL50} and \code{SL95},
+#'   \item fix a symmetric dome using \code{mode} and \code{sd},
+#'   \item or approximate a one-sided shoulder by fixing a very large
+#'     \code{rsd} for a \code{dsnormal} gear.
+#' }
+#'
+#' @return A list with two elements:
+#'   \describe{
+#'     \item{\code{parameters}}{The updated parameter list with modified
+#'       selectivity values in \code{Sm}.}
+#'     \item{\code{map_Sm}}{A factor vector suitable for inclusion in the TMB
+#'       \code{map} argument. Elements set to \code{NA} are fixed during
+#'       optimization. Returns \code{NULL} if no selectivity parameters are
+#'       fixed.}
+#'   }
+#'
+#' @examples
+#' \dontrun{
+#' tmb_data <- data_tmb_flicc(dl)
+#' parameters <- init_tmb_flicc(tmb_data)
+#'
+#' # Fix logistic selectivity using SL50 and SL95
+#' sel_fixed <- list(
+#'   "Gill net" = list(SL50 = 22, SL95 = 27)
+#' )
+#'
+#' fix_res <- apply_sel_fixed_flicc(parameters, tmb_data, sel_fixed)
+#'
+#' # Fix right tail of a double-sided normal to be very broad
+#' sel_fixed2 <- list(
+#'   "Gill net" = list(rsd = 1000)
+#' )
+#'
+#' fix_res2 <- apply_sel_fixed_flicc(parameters, tmb_data, sel_fixed2)
+#'
+#' # Fix a symmetric normal dome
+#' sel_fixed3 <- list(
+#'   "Marine set bagnet" = list(mode = 24, sd = 4)
+#' )
+#'
+#' fix_res3 <- apply_sel_fixed_flicc(parameters, tmb_data, sel_fixed3)
+#' }
+#'
+#' @export
+
+apply_sel_fixed_flicc <- function(parameters, tmb_data, sel_fixed = NULL) {
+  if (is.null(sel_fixed) || length(sel_fixed) == 0) {
+    return(list(parameters = parameters, map_Sm = NULL))
+  }
+
+  Sm_map <- factor(seq_along(parameters$Sm))
+
+  gear_names <- tmb_data$gear_names
+  sel_type   <- tmb_data$sel_type
+  sm_start   <- tmb_data$sm_start
+  sm_n       <- tmb_data$sm_n
+  Linf       <- tmb_data$Linf_init
+
+  for (nm in names(sel_fixed)) {
+    spec <- sel_fixed[[nm]]
+    if (is.null(spec)) next
+
+    if (nm %in% gear_names) {
+      g <- match(nm, gear_names)
+    } else if (grepl("^[0-9]+$", nm)) {
+      g <- as.integer(nm)
+      if (g < 1 || g > length(gear_names)) {
+        stop("Gear index out of range in sel_fixed: ", nm)
+      }
+    } else {
+      stop("Unknown gear in sel_fixed: ", nm)
+    }
+
+    start <- sm_start[g] + 1L
+
+    if (sel_type[g] == 1L) {
+      # logistic: c(log_SL50_rel, log_dSL_rel)
+
+      current_SL50 <- exp(parameters$Sm[start]) * Linf
+      current_dSL  <- exp(parameters$Sm[start + 1L]) * Linf
+
+      if (!is.null(spec$SL50)) {
+        current_SL50 <- as.numeric(spec$SL50)
+        if (current_SL50 <= 0) stop("SL50 must be > 0")
+        parameters$Sm[start] <- log(current_SL50 / Linf)
+        Sm_map[start] <- NA
+      }
+
+      if (!is.null(spec$SL95)) {
+        dSL <- as.numeric(spec$SL95) - current_SL50
+        if (dSL <= 0) stop("For logistic selectivity, SL95 must be > SL50")
+        parameters$Sm[start + 1L] <- log(dSL / Linf)
+        Sm_map[start + 1L] <- NA
+      }
+
+      if (!is.null(spec$dSL)) {
+        dSL <- as.numeric(spec$dSL)
+        if (dSL <= 0) stop("For logistic selectivity, dSL must be > 0")
+        parameters$Sm[start + 1L] <- log(dSL / Linf)
+        Sm_map[start + 1L] <- NA
+      }
+
+    } else if (sel_type[g] == 2L) {
+      # dsnormal: c(log_mode_rel, log_lsd_rel, log_rsd_rel)
+
+      if (!is.null(spec$mode)) {
+        mode <- as.numeric(spec$mode)
+        if (mode <= 0) stop("mode must be > 0")
+        parameters$Sm[start] <- log(mode / Linf)
+        Sm_map[start] <- NA
+      }
+
+      if (!is.null(spec$lsd)) {
+        lsd <- as.numeric(spec$lsd)
+        if (lsd <= 0) stop("lsd must be > 0")
+        parameters$Sm[start + 1L] <- log(lsd / Linf)
+        Sm_map[start + 1L] <- NA
+      }
+
+      if (!is.null(spec$rsd)) {
+        rsd <- as.numeric(spec$rsd)
+        if (rsd <= 0) stop("rsd must be > 0")
+        parameters$Sm[start + 2L] <- log(rsd / Linf)
+        Sm_map[start + 2L] <- NA
+      }
+
+    } else if (sel_type[g] == 3L) {
+      # normal: c(log_mode_rel, log_sd_rel)
+
+      if (!is.null(spec$mode)) {
+        mode <- as.numeric(spec$mode)
+        if (mode <= 0) stop("mode must be > 0")
+        parameters$Sm[start] <- log(mode / Linf)
+        Sm_map[start] <- NA
+      }
+
+      if (!is.null(spec$sd)) {
+        sd <- as.numeric(spec$sd)
+        if (sd <= 0) stop("sd must be > 0")
+        parameters$Sm[start + 1L] <- log(sd / Linf)
+        Sm_map[start + 1L] <- NA
+      }
+
+    } else {
+      stop("Unsupported selectivity type for gear ", g)
+    }
+
+    if ((start + sm_n[g] - 1L) > length(parameters$Sm)) {
+      stop("Selectivity indexing exceeded Sm length for gear ", g)
+    }
+  }
+
+  list(parameters = parameters, map_Sm = Sm_map)
 }

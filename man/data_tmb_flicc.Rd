@@ -15,6 +15,10 @@ include:
 \item{\code{sel_fun}}{Character vector of selectivity functions by gear.
 Currently supported: \code{"logistic"} and \code{"dsnormal"}.}
 \item{\code{Catch}}{Numeric vector of relative catch proportions by gear.}
+\item{\code{catch_sd}}{Optional scalar controlling the strength of the
+log-ratio penalty linking modeled gear proportions to relative catch
+proportions. Smaller values imply stronger anchoring. Default is
+\code{0.01}.}
 \item{\code{gear_names}}{Optional character vector of gear names.}
 \item{\code{model_name}}{Character string used to identify the mortality
 model. If it contains \code{"length-inverse"}, inverse-length natural
@@ -43,7 +47,7 @@ including:
 bookkeeping objects for the TMB template.}
 \item{\code{node}, \code{quad_wt}}{Gauss-Laguerre quadrature nodes and
 weights.}
-\item{\code{prior_mu}, \code{prior_sd}, \code{prior_code}}{Optional prior
+\item{\code{prior_mu}, \code{prior_sd}, \code{prior_code},\code{catch_sd}}{Optional prior
 specification vectors.}
 \item{\code{Linf_init}, \code{Mk_init}}{Initial values for fixed or
 estimated biological parameters.}
