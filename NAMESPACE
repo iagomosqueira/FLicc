@@ -1,4 +1,4 @@
-useDynLib(FLicc)
+useDynLib(FLicc, .registration = TRUE)
 
 import("TMB")
 import("FLCore")

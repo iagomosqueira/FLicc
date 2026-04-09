@@ -407,26 +407,6 @@ fiticc <- function(lfd, stklen,
   dll_path <- normalizePath(file.path("src", paste0(dll, ".dll")),
                             winslash = "/", mustWork = FALSE)
 
-  if (compile) {
-    if (file.exists(dll_path)) {
-      try(dyn.unload(dll_path), silent = TRUE)
-    }
-    if (file.exists(file.path("src", paste0(dll, ".o")))) {
-      unlink(file.path("src", paste0(dll, ".o")))
-    }
-    if (file.exists(file.path("src", paste0(dll, ".dll")))) {
-      unlink(file.path("src", paste0(dll, ".dll")))
-    }
-
-    TMB::compile(file.path("src", paste0(dll, ".cpp")))
-  }
-
-  dll_path <- normalizePath(file.path("src", paste0(dll, ".dll")),
-                            winslash = "/")
-
-  if (!is.loaded(paste0("R_init_", dll))) {
-    dyn.load(dll_path)
-  }
 
   map <- list()
 
