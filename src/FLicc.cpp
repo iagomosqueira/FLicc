@@ -1,14 +1,7 @@
 #include <TMB.hpp>
 
 // ---------------------------------------------------------
-// Selectivity
-// sel_type:
-//   1 = logistic
-//   2 = dsnormal
-//
-// packed pars:
-//   logistic : c(L50, log_steep)
-//   dsnormal : c(mode, log_lsd, log_rsd)
+// Selectivity (unchanged)
 // ---------------------------------------------------------
 template<class Type>
 vector<Type> calc_sel(const vector<Type>& L,
@@ -20,13 +13,6 @@ vector<Type> calc_sel(const vector<Type>& L,
   vector<Type> sel(n);
 
   if(sel_type == 1) {
-    // logistic, LBSPR-style
-    // pars = c(log_SL50_rel, log_dSL_rel)
-    // where:
-    //   SL50 = exp(pars[0]) * Linf
-    //   dSL  = exp(pars[1]) * Linf
-    //   SL95 = SL50 + dSL
-
     Type SL50 = exp(pars(0)) * Linf;
     Type dSL  = exp(pars(1)) * Linf;
     Type Delta = dSL;
@@ -36,8 +22,6 @@ vector<Type> calc_sel(const vector<Type>& L,
     }
 
   } else if(sel_type == 2) {
-    // dsnormal, relative to Linf
-    // pars = c(log_mode_rel, log_lsd_rel, log_rsd_rel)
 
     Type mode = exp(pars(0)) * Linf;
     Type lsd  = exp(pars(1)) * Linf;
@@ -54,8 +38,6 @@ vector<Type> calc_sel(const vector<Type>& L,
     }
 
   } else if(sel_type == 3) {
-    // symmetric normal, relative to Linf
-    // pars = c(log_mode_rel, log_sd_rel)
 
     Type mode = exp(pars(0)) * Linf;
     Type sd   = exp(pars(1)) * Linf;
@@ -74,10 +56,7 @@ vector<Type> calc_sel(const vector<Type>& L,
 }
 
 // ---------------------------------------------------------
-// Negative binomial parameterization:
-// mean = mu
-// variance = mu + mu^2 / phi
-// implemented via size=phi, prob=phi/(phi+mu)
+// Negative binomial
 // ---------------------------------------------------------
 template<class Type>
 Type dnbinom_phi(Type x, Type mu, Type phi, int give_log = 0)
@@ -92,17 +71,7 @@ Type dnbinom_phi(Type x, Type mu, Type phi, int give_log = 0)
 }
 
 // ---------------------------------------------------------
-// fishblicc-style population at length using
-// Gauss-Laguerre quadrature over gamma-distributed Linf
-//
-// Len  : lower bounds of length bins
-// Zki  : total mortality by bin
-// Galpha, Gbeta : gamma parameters for Linf variability
-//
-// Returns interval numbers-at-length NI, where
-//   NI(i) = (S(i) - S(i+1)) / Z(i)
-// and last bin is treated as a plus group:
-//   NI(last) = S(last) / Z(last)
+// Population recursion (unchanged)
 // ---------------------------------------------------------
 template<class Type>
 vector<Type> pop_len_glq(const vector<Type>& node,
@@ -115,9 +84,6 @@ vector<Type> pop_len_glq(const vector<Type>& node,
   int nv  = node.size();
   int LN  = Len.size();
   int LN1 = LN - 1;
-
-  if(quad_wt.size() != nv) error("node and quad_wt must have same length");
-  if(Zki.size() != LN) error("Zki and Len must have same length");
 
   Type lgamma_Galpha = lgamma(Galpha);
   Type Galpha_1      = Galpha - Type(1);
@@ -134,13 +100,11 @@ vector<Type> pop_len_glq(const vector<Type>& node,
   vector<Type> NI(LN);
   NI.setZero();
 
-  // differences in Z between adjacent bins
   Zii(0) = -Zki(0);
   for(int i = 1; i < (LN - 1); ++i) {
     Zii(i) = Zki(i - 1) - Zki(i);
   }
 
-  // first two bins
   for(int i = 0; i < nv; ++i) {
     x_beta(i)     = node(i) / Gbeta;
     log_x_beta(i) = log(x_beta(i));
@@ -150,22 +114,10 @@ vector<Type> pop_len_glq(const vector<Type>& node,
     - Gbeta * Len(0)
       - lgamma_Galpha
     ) * quad_wt(i);
-
-    if(LN > 1) {
-      surv(1) += exp(
-        log(x_beta(i) + Len(1) - Len(0)) * Zii(0)
-      + log_x_beta(i) * Zki(0)
-      + log(node(i) + Gbeta * Len(1)) * Galpha_1
-      - Gbeta * Len(1)
-      - lgamma_Galpha
-      ) * quad_wt(i);
-    }
   }
 
-  // remaining bins
-  for(int Li = 2; Li < LN; ++Li) {
+  for(int Li = 1; Li < LN; ++Li) {
     Type Ln = Len(Li);
-    Type v1 = Gbeta * Ln + lgamma_Galpha;
 
     for(int i = 0; i < nv; ++i) {
       Type lim = Type(0);
@@ -179,87 +131,76 @@ vector<Type> pop_len_glq(const vector<Type>& node,
         lim
         + log_x_beta(i) * Zki(Li - 1)
         + log(node(i) + Gbeta * Ln) * Galpha_1
-        - v1
+        - (Gbeta * Ln + lgamma_Galpha)
       ) * quad_wt(i);
     }
   }
 
-  // interval abundance
   for(int i = 0; i < LN1; ++i) {
     NI(i) = (surv(i) - surv(i + 1)) / Zki(i);
   }
 
-  // plus group
   NI(LN1) = surv(LN1) / Zki(LN1);
 
   return NI;
 }
 
 // ---------------------------------------------------------
-// Objective
+// Objective (MULTI-YEAR VERSION)
 // ---------------------------------------------------------
 template<class Type>
 Type objective_function<Type>::operator() ()
 {
-  // Data
   DATA_INTEGER(nlen);
+  DATA_INTEGER(nyear);
   DATA_INTEGER(ngear);
-  DATA_VECTOR(Lmid);           // length midpoints
-  DATA_VECTOR(LLB);            // lower bin bounds
-  DATA_MATRIX(obs);            // nlen x ngear counts
-  DATA_VECTOR(catch_wt);       // retained for structure; not used in mu scaling here
-  DATA_IVECTOR(sel_type);      // 1=logistic, 2=dsnormal
-  DATA_IVECTOR(sm_start);      // 0-based start index in Sm
-  DATA_IVECTOR(sm_n);          // number of pars for each gear
-  DATA_VECTOR(Mscaler)       // scales MK(L) according to M model
-  DATA_VECTOR(wt);            // vector weight-at-length
-  DATA_VECTOR(mat);           // vector length-at-maturity
 
+  DATA_VECTOR(Lmid);
+  DATA_VECTOR(LLB);
+
+  DATA_ARRAY(obs);        // nlen x nyear x ngear
+  DATA_MATRIX(Mscaler);   // nlen x nyear
+  DATA_MATRIX(wt);        // nlen x nyear
+  DATA_MATRIX(mat);       // nlen x nyear
+
+  DATA_MATRIX(catch_wt);
   DATA_SCALAR(catch_sd);
 
-  // quadrature inputs for fishblicc recursion
+  DATA_IVECTOR(sel_type);
+  DATA_IVECTOR(sm_start);
+  DATA_IVECTOR(sm_n);
+
   DATA_VECTOR(node);
   DATA_VECTOR(quad_wt);
 
-  // Prior controls (simple normal penalties)
   DATA_VECTOR(prior_mu);
   DATA_VECTOR(prior_sd);
   DATA_IVECTOR(prior_code);
+  // Random walk for fk(g) - effectly F
+  DATA_SCALAR(prior_sigmaF_mean);
+  DATA_SCALAR(prior_sigmaF_sd);
+  DATA_INTEGER(prior_sigmaF_use);
 
-  // prior_code:
-  // 1 log_Linf
-  // 2 log_Galpha
-  // 3 log_Mk
-  // 4 log_phi
-  // 100 + g => log_Fk[g]
-  // 200 + j => Sm[j]
-
-  // Parameters
   PARAMETER(log_Linf);
   PARAMETER(log_Galpha);
   PARAMETER(log_Mk);
-  PARAMETER_VECTOR(log_Fk);    // length ngear
-  PARAMETER_VECTOR(Sm);        // packed selectivity pars
+  PARAMETER_MATRIX(log_Fk);   // nyear x ngear
+  PARAMETER_VECTOR(Sm);
   PARAMETER(log_phi);
+  PARAMETER(log_sigmaF); // random walk F
 
   Type nll = 0.0;
 
-  // Natural-scale parameters
   Type Linf   = exp(log_Linf);
   Type Galpha = exp(log_Galpha);
   Type Mk     = exp(log_Mk);
   Type phi    = exp(log_phi);
   Type Gbeta  = Galpha / Linf;
+  Type sigmaF = exp(log_sigmaF);
 
-  vector<Type> Fk(ngear);
-  for(int g = 0; g < ngear; g++) Fk(g) = exp(log_Fk(g));
-
-  // Selectivity matrix
+  // --- COMMON SELECTIVITY ---
   matrix<Type> Sel(nlen, ngear);
   for(int g = 0; g < ngear; g++) {
-    if(sm_start(g) < 0) error("sm_start < 0");
-    if(sm_start(g) + sm_n(g) > Sm.size()) error("sm_start + sm_n exceeds Sm size");
-
     vector<Type> pars(sm_n(g));
     for(int j = 0; j < sm_n(g); j++) {
       pars(j) = Sm(sm_start(g) + j);
@@ -267,150 +208,193 @@ Type objective_function<Type>::operator() ()
     Sel.col(g) = calc_sel(Lmid, sel_type(g), pars, Linf);
   }
 
-  // Natural mortality at length
-  // kept on Lmid for now
-  vector<Type> M(nlen);
-  for(int l = 0; l < nlen; l++) {
-
-      M(l) = Mk * Mscaler(l);
-
-  }
-
-
-  // Fishing mortality at length and total Z
-  matrix<Type> F_len(nlen, ngear);
-  vector<Type> Z(nlen);
-  vector<Type> Z0(nlen);
+  // --- COMMON M, Z0, N0 ---
+  vector<Type> M(nlen), Z0(nlen), N0(nlen);
 
   for(int l = 0; l < nlen; l++) {
+    M(l)  = Mk * Mscaler(l, 0);   // common across years by design
     Z0(l) = M(l);
-    Z(l)  = M(l);
+  }
+
+  N0 = pop_len_glq(node, quad_wt, LLB, Z0, Galpha, Gbeta);
+
+  // --- OUTPUT OBJECTS ---
+  array<Type> plen(nlen, nyear, ngear);
+  matrix<Type> Fk(nyear, ngear);
+  vector<Type> spr_y(nyear);
+  matrix<Type> N_y(nlen, nyear);
+  matrix<Type> plen_all_y(nlen, nyear);
+  matrix<Type> sel_joint(nlen, nyear);
+  matrix<Type> Fk_l(nlen, nyear);
+
+  sel_joint.setZero();
+  Fk_l.setZero();
+
+
+  // --- LOOP OVER YEARS ---
+  for(int y = 0; y < nyear; y++) {
+
+    vector<Type> Z(nlen), N(nlen);
+    matrix<Type> F_len(nlen, ngear), Cpred(nlen, ngear), mu(nlen, ngear);
+
+    vector<Type> obs_gear(ngear);
+    vector<Type> pred_gear(ngear);
+
+    obs_gear.setZero();
+    pred_gear.setZero();
+
     for(int g = 0; g < ngear; g++) {
-      F_len(l, g) = Fk(g) * Sel(l, g);
-      Z(l) += F_len(l, g);
+      Fk(y,g) = exp(log_Fk(y,g));
     }
-  }
 
-  // ---------------------------------------------------------
-  // fishblicc-style population recursion
-  // uses lower bin bounds (LLB), not Lmid
-  // ---------------------------------------------------------
-  vector<Type> N0 = pop_len_glq(node, quad_wt, LLB, Z0, Galpha, Gbeta);
-  vector<Type> N  = pop_len_glq(node, quad_wt, LLB, Z,  Galpha, Gbeta);
-
-  // SPR = SBPR_F / SBPR_0
-  Type spr0 = Type(0);
-  Type sprf = Type(0);
-
-  for(int l = 0; l < nlen; l++) {
-    spr0 += N0(l) * mat(l) * wt(l);
-    sprf += N(l)  * mat(l) * wt(l);
-  }
-
-  Type spr = Type(0);
-  if(spr0 > Type(0)) spr = sprf / spr0;
-
-  // Expected catch-at-length by gear:
-  // Cpred(l,g) = N(l) * F_len(l,g)
-  matrix<Type> Cpred(nlen, ngear);
-  for(int l = 0; l < nlen; l++) {
-    for(int g = 0; g < ngear; g++) {
-      Cpred(l, g) = N(l) * F_len(l, g);
-    }
-  }
-
-  // ---------------------------------------------------------
-  // Global expected-count construction across all gears
-  // This lets Fk influence allocation among gears as well
-  // ---------------------------------------------------------
-  vector<Type> pred_gear(ngear);
-  vector<Type> obs_gear(ngear);
-  vector<Type> pred_pgear(ngear);
-
-  pred_gear.setZero();
-  obs_gear.setZero();
-
-  Type pred_total = Type(0);
-  Type obs_total  = Type(0);
-
-  for(int g = 0; g < ngear; g++) {
     for(int l = 0; l < nlen; l++) {
-      pred_gear(g) += Cpred(l, g);
-      obs_gear(g)  += obs(l, g);
-      pred_total   += Cpred(l, g);
-      obs_total    += obs(l, g);
-    }
-  }
 
-  for(int g = 0; g < ngear; g++) {
-    if(pred_total > Type(0)) {
-      pred_pgear(g) = pred_gear(g) / pred_total;
+      Z(l) = M(l);
+
+      for(int g = 0; g < ngear; g++) {
+        F_len(l,g) = Fk(y,g) * Sel(l,g);
+        Z(l) += F_len(l,g);
+      }
+    }
+
+    N = pop_len_glq(node, quad_wt, LLB, Z, Galpha, Gbeta);
+
+    for(int l = 0; l < nlen; l++) {
+      N_y(l,y) = N(l);
+    }
+
+    Type spr0 = 0.0;
+    Type sprf = 0.0;
+
+    for(int l = 0; l < nlen; l++) {
+      spr0 += N0(l) * mat(l,y) * wt(l,y);
+      sprf += N(l)  * mat(l,y) * wt(l,y);
+    }
+
+    if(spr0 > Type(0)) {
+      spr_y(y) = sprf / spr0;
     } else {
-      pred_pgear(g) = Type(0);
+      spr_y(y) = Type(0);
     }
-  }
 
-  // ---------------------------------------------------------
-  // Observed and predicted proportions at length
-  // ---------------------------------------------------------
-  matrix<Type> obs_p_lg(nlen, ngear);
-  matrix<Type> pred_p_lg(nlen, ngear);
-  vector<Type> obs_p_l(nlen);
-  vector<Type> pred_p_l(nlen);
-
-  obs_p_l.setZero();
-  pred_p_l.setZero();
-
-  for(int g = 0; g < ngear; g++) {
-    for(int l = 0; l < nlen; l++) {
-      // observed within-gear proportions at length
-      if(obs_gear(g) > Type(0)) {
-        obs_p_lg(l, g) = obs(l, g) / obs_gear(g);
-      } else {
-        obs_p_lg(l, g) = Type(0);
-      }
-
-      // predicted within-gear proportions at length
-      if(pred_gear(g) > Type(0)) {
-        pred_p_lg(l, g) = Cpred(l, g) / pred_gear(g);
-      } else {
-        pred_p_lg(l, g) = Type(0);
-      }
-    }
-  }
-
-  // catch-weighted overall proportions across gears
-  for(int l = 0; l < nlen; l++) {
     for(int g = 0; g < ngear; g++) {
-      obs_p_l(l)  += catch_wt(g) * obs_p_lg(l, g);
-      pred_p_l(l) += catch_wt(g) * pred_p_lg(l, g);
+      for(int l = 0; l < nlen; l++) {
+        Cpred(l,g) = N(l) * F_len(l,g);
+        pred_gear(g) += Cpred(l,g);
+        obs_gear(g)  += obs(l,y,g);
+      }
     }
-  }
 
-  // build mu for the likelihood
+    // predicted gear shares
+    vector<Type> pred_pgear(ngear);
+    Type pred_total = Type(0);
 
+    pred_pgear.setZero();
 
-  matrix<Type> mu(nlen, ngear);
+    for(int g = 0; g < ngear; g++) {
+      pred_total += pred_gear(g);
+    }
 
-  for(int g = 0; g < ngear; g++) {
-    for(int l = 0; l < nlen; l++) {
-      if(pred_gear(g) > Type(0)) {
-        mu(l, g) = obs_gear(g) * Cpred(l, g) / pred_gear(g) + Type(1e-12);
+    for(int g = 0; g < ngear; g++) {
+      if(pred_total > Type(0)) {
+        pred_pgear(g) = pred_gear(g) / pred_total;
       } else {
-        mu(l, g) = Type(1e-12);
+        pred_pgear(g) = Type(0);
+      }
+    }
+
+    Type fmax = Type(0);
+
+    for(int l = 0; l < nlen; l++) {
+      Type fsum = Type(0);
+      for(int g = 0; g < ngear; g++) {
+        fsum += F_len(l,g);
+      }
+      Fk_l(l,y) = fsum;
+      if(fsum > fmax) fmax = fsum;
+    }
+
+
+
+    for(int l = 0; l < nlen; l++) {
+      if(fmax > Type(0)) {
+        sel_joint(l,y) = Fk_l(l,y) / fmax;
+      } else {
+        sel_joint(l,y) = Type(0);
+      }
+    }
+
+    // combined expected length composition across gears
+    Type ctot = Type(0);
+    for(int g = 0; g < ngear; g++) {
+      ctot += catch_wt(y,g) * pred_gear(g);
+    }
+
+    for(int l = 0; l < nlen; l++) {
+      Type ctot_l = Type(0);
+
+      for(int g = 0; g < ngear; g++) {
+        ctot_l += catch_wt(y,g) * Cpred(l,g);
+      }
+
+      if(ctot > Type(0)) {
+        plen_all_y(l,y) = ctot_l / ctot;
+      } else {
+        plen_all_y(l,y) = Type(0);
+      }
+    }
+
+
+
+    // soft constraint on predicted gear shares using relative catch
+    for(int g = 0; g < (ngear - 1); g++) {
+      if(pred_pgear(g) > Type(0) &&
+         pred_pgear(ngear - 1) > Type(0) &&
+         catch_wt(y,g) > Type(0) &&
+         catch_wt(y,ngear - 1) > Type(0)) {
+
+        Type logratio_pred  = log(pred_pgear(g) / pred_pgear(ngear - 1));
+        Type logratio_catch = log(catch_wt(y,g) / catch_wt(y,ngear - 1));
+
+        nll -= dnorm(logratio_pred, logratio_catch, catch_sd, true);
+      }
+    }
+
+
+
+    // Likelihood function
+    for(int g = 0; g < ngear; g++) {
+      for(int l = 0; l < nlen; l++) {
+
+        if(pred_gear(g) > Type(0)) {
+          mu(l,g) = obs_gear(g) * Cpred(l,g) / pred_gear(g) + Type(1e-12);
+        } else {
+          mu(l,g) = Type(1e-12);
+        }
+
+        nll -= dnbinom_phi(obs(l,y,g), mu(l,g), phi, 1);
+
+        if(pred_gear(g) > Type(0)) {
+          plen(l,y,g) = Cpred(l,g) / pred_gear(g);
+        } else {
+          plen(l,y,g) = Type(0);
+        }
       }
     }
   }
 
-
-  // Likelihood
-  for(int g = 0; g < ngear; g++) {
-    for(int l = 0; l < nlen; l++) {
-      nll -= dnbinom_phi(obs(l, g), mu(l, g), phi, 1);
+  // Penalty on random walk F
+  if(prior_sigmaF_use == 1 && nyear > 1) {
+    for(int g = 0; g < ngear; g++) {
+      for(int y = 1; y < nyear; y++) {
+        nll -= dnorm(log_Fk(y,g), log_Fk(y-1,g), sigmaF, true);
+      }
     }
+
+    nll -= dnorm(log_sigmaF, prior_sigmaF_mean, prior_sigmaF_sd, true);
   }
 
-  // Normal prior penalties
+  // --- NORMAL PRIOR PENALTIES ---
   for(int i = 0; i < prior_mu.size(); i++) {
     Type x;
     int code = prior_code(i);
@@ -425,7 +409,7 @@ Type objective_function<Type>::operator() ()
       x = log_phi;
     } else if(code >= 100 && code < 200) {
       int g = code - 100;
-      x = log_Fk(g);
+      x = log_Fk(0, g);
     } else if(code >= 200) {
       int j = code - 200;
       x = Sm(j);
@@ -436,61 +420,31 @@ Type objective_function<Type>::operator() ()
     nll -= dnorm(x, prior_mu(i), prior_sd(i), true);
   }
 
-  //Penalty
-  // soft constraint on predicted gear shares using relative catch
-  // smaller = stronger anchoring
+  vector<Type> log_spr_y = log(spr_y);
 
-  for(int g = 0; g < (ngear - 1); g++) {
-    if(pred_pgear(g) > Type(0) &&
-       pred_pgear(ngear - 1) > Type(0) &&
-       catch_wt(g) > Type(0) &&
-       catch_wt(ngear - 1) > Type(0)) {
-
-      Type logratio_pred  = log(pred_pgear(g) / pred_pgear(ngear - 1));
-      Type logratio_catch = log(catch_wt(g)   / catch_wt(ngear - 1));
-
-      nll -= dnorm(logratio_pred, logratio_catch, catch_sd, true);
-    }
-  }
-
-
+  REPORT(Sel);        // nlen x ngear
+  REPORT(plen);       // nlen x nyear x ngear
+  REPORT(spr_y);      // nyear x 1
+  REPORT(Fk);         // nyear x ngear on natural scale
+  REPORT(sigmaF);
+  REPORT(N_y);
+  REPORT(plen_all_y);
+  REPORT(sel_joint);
+  REPORT(Fk_l);
   REPORT(Linf);
   REPORT(Galpha);
   REPORT(Gbeta);
   REPORT(Mk);
   REPORT(phi);
-  REPORT(Fk);
-  REPORT(M);
-  REPORT(Sel);
-  REPORT(F_len);
-  REPORT(Z0);
-  REPORT(Z);
-  REPORT(N0);
-  REPORT(N);
-  REPORT(Cpred);
-  REPORT(mu);
-  REPORT(mat);
-  REPORT(wt);
-  REPORT(spr0);
-  REPORT(sprf);
-  REPORT(spr);
-  REPORT(pred_gear);
-  REPORT(obs_gear);
-  REPORT(pred_pgear);
-  REPORT(obs_gear);
-  REPORT(pred_gear);
-  REPORT(pred_pgear);
-  REPORT(obs_p_lg);
-  REPORT(pred_p_lg);
-  REPORT(obs_p_l);
-  REPORT(pred_p_l);
 
-  ADREPORT(Linf);
-  ADREPORT(Galpha);
-  ADREPORT(Mk);
-  ADREPORT(phi);
-  ADREPORT(Fk);
-  ADREPORT(spr);
+
+
+  ADREPORT(log_Linf);
+  ADREPORT(log_Galpha);
+  ADREPORT(log_Mk);
+  ADREPORT(log_phi);
+  ADREPORT(log_sigmaF);
+  ADREPORT(log_spr_y);
 
   return nll;
 }

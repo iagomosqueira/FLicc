@@ -1,235 +1,179 @@
-#' Build a TMB data list for FLicc
+#' Build multi-year TMB data list for FLicc
 #'
-#' Converts a user-supplied input list into the numeric data structures required
-#' by the FLicc TMB objective function. The function validates the main inputs,
-#' constructs observed length-frequency matrices by gear, derives length-bin
-#' midpoints, sets selectivity indexing, standardizes relative catch weights,
-#' builds Gauss-Laguerre quadrature inputs, and prepares optional prior vectors.
+#' @param lfd named list of FLQuant objects, one per gear
+#' @param stklen FLStockLen-like object with matching years
+#' @param sel_fun selectivity function per gear
+#' @param catch_by_gear numeric vector of relative catch by gear
+#' @param settings list with CVL, GL, catch.sd, optional linf.sd, Mk.sd, CVL.sd
+#' @param years optional vector of years to include
 #'
-#' @param dl A named list containing the FLicc model inputs. Expected elements
-#'   include:
-#'   \describe{
-#'     \item{\code{fq}}{A named list of length-frequency vectors, one per gear.}
-#'     \item{\code{LLB}}{Numeric vector of lower length-bin boundaries.}
-#'     \item{\code{sel_fun}}{Character vector of selectivity functions by gear.
-#'       Currently supported: \code{"logistic"} and \code{"dsnormal"}.}
-#'     \item{\code{Catch}}{Numeric vector of relative catch proportions by gear.}
-#'     \item{\code{catch_sd}}{Optional scalar controlling the strength of the
-#'       log-ratio penalty linking modeled gear proportions to relative catch
-#'       proportions. Smaller values imply stronger anchoring. Default is
-#'       \code{0.01}.}
-#'     \item{\code{gear_names}}{Optional character vector of gear names.}
-#'     \item{\code{model_name}}{Character string used to identify the mortality
-#'       model. If it contains \code{"length-inverse"}, inverse-length natural
-#'       mortality is assumed.}
-#'     \item{\code{ref_length}}{Reference length for inverse-length natural
-#'       mortality.}
-#'     \item{\code{a}, \code{b}}{Length-weight parameters used in post hoc SPR
-#'       calculations.}
-#'     \item{\code{L50}}{Length at 50 percent maturity.}
-#'     \item{\code{GL}}{Number of Gauss-Laguerre quadrature points.}
-#'     \item{\code{Linf}}{Numeric vector or scalar used for initialization and
-#'       optionally prior specification. If length 2, the second value is treated
-#'       as the prior SD on the log scale.}
-#'     \item{\code{Mk}}{Numeric vector or scalar used for initialization and
-#'       optionally prior specification. If length 2, the second value is treated
-#'       as the prior SD on the log scale.}
-#'   }
-#'
-#' @details
-#' The returned list is intended for direct use in \code{TMB::MakeADFun()}.
-#' Selectivity functions are internally coded as integers, with
-#' \code{1 = logistic} and \code{2 = dsnormal}. Selectivity parameters are packed
-#' into a single vector in C++, with \code{sm_start} providing zero-based start
-#' indices by gear.
-#'
-#' Gauss-Laguerre quadrature nodes and weights are generated using
-#' \code{statmod::gauss.quad()} and are used by the fishblicc-style
-#' population-at-length recursion.
-#'
-#' @return A named list containing validated and transformed data for TMB,
-#'   including:
-#'   \describe{
-#'     \item{\code{obs}}{Observed counts matrix, length bins by gears.}
-#'     \item{\code{Lmid}, \code{LLB}}{Length-bin midpoints and lower bounds.}
-#'     \item{\code{sel_type}, \code{sm_start}, \code{sm_n}}{Selectivity
-#'       bookkeeping objects for the TMB template.}
-#'     \item{\code{node}, \code{quad_wt}}{Gauss-Laguerre quadrature nodes and
-#'       weights.}
-#'     \item{\code{prior_mu}, \code{prior_sd}, \code{prior_code},\code{catch_sd}}{Optional prior
-#'       specification vectors.}
-#'     \item{\code{Linf_init}, \code{Mk_init}}{Initial values for fixed or
-#'       estimated biological parameters.}
-#'   }
-#'
-#' @examples
-#' \dontrun{
-#' tmb_data <- data_tmb_flicc(dl)
-#' str(tmb_data)
-#' }
-#'
-#' @export
+#' @return list for TMB::MakeADFun
+data_tmb_flicc <- function(lfd, stklen, sel_fun, catch_by_gear,
+                             settings = list(CVL = 0.1, GL = 50, catch.sd = 0.05),
+                             years = NULL) {
 
-data_tmb_flicc <- function(dl) {
-  stopifnot(is.list(dl))
+  stopifnot(is.list(lfd))
+  if (is.null(names(lfd))) {
+    names(lfd) <- paste0("gear", seq_along(lfd))
+  }
+  gear_names <- names(lfd)
+  ngear <- length(lfd)
 
-  # ---- observed frequencies ----
-  if (is.null(dl$fq))
-    stop("dl$fq not found")
+  lens <- as.numeric(dimnames(lfd[[1]])$len)
+  yrs_all <- as.numeric(dimnames(lfd[[1]])$year)
 
-  gear_names <- names(dl$fq)
-  if (is.null(gear_names)) {
-    if (!is.null(dl$gear_names)) {
-      gear_names <- dl$gear_names
-    } else {
-      gear_names <- paste0("gear", seq_along(dl$fq))
+  if (is.null(years)) {
+    years <- yrs_all
+  }
+  years <- as.numeric(years)
+  nyear <- length(years)
+  nlen  <- length(lens)
+
+  # observed length frequencies: obs[len, year, gear]
+  obs <- array(NA_real_,
+               dim = c(nlen, nyear, ngear),
+               dimnames = list(len = lens, year = years, gear = gear_names))
+
+  for (g in seq_len(ngear)) {
+    x <- lfd[[g]]
+    xyrs <- as.numeric(dimnames(x)$year)
+    if (!all(years %in% xyrs)) {
+      stop("Not all requested years found in lfd gear: ", gear_names[g])
+    }
+
+    for (iy in seq_along(years)) {
+      y <- years[iy]
+      obs[, iy, g] <- as.numeric(as.data.frame(yearMeans(x[, ac(y)]))$data)
     }
   }
 
-  # ---- catch-weight penalty SD ----
-  catch_sd <- if (!is.null(dl$catch.sd)) as.numeric(dl$catch.sd) else 0.05
-
-  if (length(catch_sd) != 1 || !is.finite(catch_sd) || catch_sd <= 0) {
-    stop("dl$catch_sd must be a single positive numeric value")
+  # stock years
+  stk_years <- as.numeric(dimnames(stklen)$year)
+  if (!all(years %in% stk_years)) {
+    stop("Not all requested years found in stklen")
   }
 
-  obs <- do.call(cbind, lapply(dl$fq, as.numeric))
-  colnames(obs) <- gear_names
+  stkw <- window(stklen, start = min(years), end = max(years))
 
-  nlen  <- nrow(obs)
-  ngear <- ncol(obs)
+  # extract year-varying biology as len x year matrices
+  wt_df  <- as.data.frame(catch.wt(stkw))
+  mat_df <- as.data.frame(mat(stkw))
+  m_df   <- as.data.frame(m(stkw))
 
-  # ---- lengths ----
-  LLB <- as.numeric(dl$LLB)
-  if (length(LLB) != nlen) stop("length(LLB) must equal number of rows in obs")
+  # assume ordering len-fast, then year
+  wt_mat  <- matrix(wt_df$data,  nrow = nlen, ncol = nyear)
+  mat_mat <- matrix(mat_df$data, nrow = nlen, ncol = nyear)
+  m_mat   <- matrix(m_df$data,   nrow = nlen, ncol = nyear)
 
+  # scale M around annual mean so Mk remains the average level
+  Mscaler <- sweep(m_mat, 2, colMeans(m_mat, na.rm = TRUE), "/")
+
+  # lengths
+  LLB <- lens
   step <- c(diff(LLB), tail(diff(LLB), 1))
   Lmid <- LLB + step / 2
 
-
-
-  # ---- selectivity ----
-  sel_fun <- dl$sel_fun
-  if (length(sel_fun) != ngear)
+  # selectivity
+  if (length(sel_fun) != ngear) {
     stop("length(sel_fun) must equal number of gears")
+  }
 
   sel_type <- ifelse(sel_fun == "logistic", 1L,
                      ifelse(sel_fun == "dsnormal", 2L,
-                            ifelse(sel_fun %in% c("normal"), 3L,
-                                   NA_integer_)))
-
+                            ifelse(sel_fun == "normal", 3L, NA_integer_)))
   if (any(is.na(sel_type))) {
-    stop("Supported selectivity options are: logistic, dsnormal, normal")
+    stop("Supported selectivity options are logistic, dsnormal, normal")
   }
 
   sm_n <- ifelse(sel_fun == "logistic", 2L,
                  ifelse(sel_fun == "dsnormal", 3L,
-                        ifelse(sel_fun %in% c("normal"), 2L,
-                               NA_integer_)))
-  sm_start <- cumsum(c(0L, head(sm_n, -1L)))  # already 0-based for C++
-
-  stopifnot(all(sm_start >= 0))
-  stopifnot(all(sm_start + sm_n <= sum(sm_n)))
-
-  # ---- catch weights ----
-  catch_wt <- as.numeric(dl$catch_by_gear)
-  if (length(catch_wt) != ngear)
-    stop("length(Catch) must equal number of gears")
-  catch_wt <- catch_wt / sum(catch_wt)
+                        ifelse(sel_fun == "normal", 2L, NA_integer_)))
+  sm_start <- cumsum(c(0L, head(sm_n, -1L)))  # 0-based for C++
 
 
-  # ---- quadrature inputs for pop_len_glq ----
-  # Adjust these names if fishblicc stores them differently
-  gl <- statmod::gauss.quad(dl$GL, kind = "laguerre")
 
-  node <- gl$nodes
-  quad_wt <- gl$weights
 
-  if (is.null(node) || is.null(quad_wt)) {
-    stop("dl must contain quadrature vectors 'node' and 'quad_wt' for pop_len_glq()")
+
+  # catch weights by gear
+  catch_wt <- do.call(
+    cbind,
+    lapply(catch_by_gear, function(x) as.data.frame(x)$data)
+  )
+  rownames(catch_wt) <- dimnames(catch_by_gear[[1]])$year
+
+  catch_wt <- catch_wt / rowSums(catch_wt)
+
+
+  if (ncol(catch_wt) != ngear) {
+    stop("length(catch_by_gear) must equal number of gears")
+  }
+  if (nrow(catch_wt) != nyear) {
+    stop("catch_by_gear must have one value per year")
   }
 
-  node <- as.numeric(node)
-  quad_wt <- as.numeric(quad_wt)
+  catch_sd <- if (!is.null(settings$catch.sd)) as.numeric(settings$catch.sd) else 0.05
 
-  if (length(node) != length(quad_wt)) {
-    stop("node and quad_wt must have the same length")
-  }
+  # quadrature
+  gl <- statmod::gauss.quad(settings$GL, kind = "laguerre")
+  node <- as.numeric(gl$nodes)
+  quad_wt <- as.numeric(gl$weights)
 
-  # ---- biological inputs ----
+  # life history initial values
+  lhpar <- stklen@lhpar
+  Linf_init <- as.numeric(lhpar["linf"])
+  Mk_init   <- as.numeric(lhpar["Mk"])
 
-  if (is.null(dl$Linf)) stop("dl$Linf not found")
-  Linf_init <- as.numeric(dl$Linf[1])
-
-  if (is.null(dl$Mk)) stop("dl$Mk not found")
-  Mk_init <- as.numeric(dl$Mk[1])
-
-  if (is.null(dl$CVL)) {
-    CVL_init <- 0.1
-    CVL_input <- 0.1
-  } else {
-    CVL_input <- dl$CVL
-    CVL_init <- as.numeric(CVL_input[1])
-  }
-
-  if (Linf_init <= 0) stop("Linf must be > 0")
-  if (Mk_init <= 0) stop("Mk must be > 0")
-  if (CVL_init <= 0) stop("CVL must be > 0")
-
+  CVL_init <- if (!is.null(settings$CVL)) as.numeric(settings$CVL) else 0.1
   Galpha_init <- 1 / CVL_init^2
-
 
   prior_mu <- numeric()
   prior_sd <- numeric()
   prior_code <- integer()
 
-  # 1 log_Linf
-  if (!is.null(dl$linf.sd)) {
+  if (!is.null(settings$linf.sd)) {
     prior_mu   <- c(prior_mu, log(Linf_init))
-    prior_sd   <- c(prior_sd, as.numeric(dl$linf.sd))
+    prior_sd   <- c(prior_sd, as.numeric(settings$linf.sd))
     prior_code <- c(prior_code, 1L)
   }
 
-  # 3 log_Mk
-  if (!is.null(dl$Mk.sd)) {
+  if (!is.null(settings$Mk.sd)) {
     prior_mu   <- c(prior_mu, log(Mk_init))
-    prior_sd   <- c(prior_sd, as.numeric(dl$Mk.sd))
+    prior_sd   <- c(prior_sd, as.numeric(settings$Mk.sd))
     prior_code <- c(prior_code, 3L)
   }
 
-  # 2 log_Galpha, derived from CVL prior
-  if (!is.null(dl$CVL.sd)){
+  if (!is.null(settings$CVL.sd)) {
     prior_mu   <- c(prior_mu, -2 * log(CVL_init))
-    prior_sd   <- c(prior_sd,  2 * as.numeric(dl$CVL.sd))
+    prior_sd   <- c(prior_sd, 2 * as.numeric(settings$CVL.sd))
     prior_code <- c(prior_code, 2L)
   }
 
-  Mscaler <- dl$mL/mean(dl$mL)
-
   list(
     nlen       = nlen,
+    nyear      = nyear,
     ngear      = ngear,
     Lmid       = as.numeric(Lmid),
     LLB        = as.numeric(LLB),
     obs        = unname(obs),
-    catch_wt   = catch_wt,
+    Mscaler    = unname(Mscaler),
+    wt         = unname(wt_mat),
+    mat        = unname(mat_mat),
+    catch_wt   = unname(catch_wt),
     catch_sd   = catch_sd,
     sel_type   = as.integer(sel_type),
     sm_start   = as.integer(sm_start),
     sm_n       = as.integer(sm_n),
-    Mscaler   =  as.numeric(Mscaler),
-    mat         = as.numeric(dl$mat),
-    wt         = as.numeric(dl$wt),
     node       = node,
     quad_wt    = quad_wt,
+    prior_mu   = as.numeric(prior_mu),
+    prior_sd   = as.numeric(prior_sd),
+    prior_code = as.integer(prior_code),
     Linf_init   = Linf_init,
     Mk_init     = Mk_init,
     CVL_init    = CVL_init,
     Galpha_init = Galpha_init,
-    prior_mu   = as.numeric(prior_mu),
-    prior_sd   = as.numeric(prior_sd),
-    prior_code = as.integer(prior_code),
-    gear_names = gear_names
+    gear_names  = gear_names,
+    year_names  = years
   )
 }
 #' Generate initial parameter values for FLicc TMB fits
@@ -274,13 +218,18 @@ data_tmb_flicc <- function(dl) {
 #'
 #' @examples
 #' \dontrun{
-#' tmb_data <- data_tmb_flicc(dl)
+#' data(alfonsino)
+#' tmb_data <- data_tmb_flicc(lfd,stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear = c(0.7,0.3))
 #' par0 <- init_tmb_flicc(tmb_data)
 #' str(par0)
 #' }
 #'
 #' @export
+#' Initial values for multi-year FLicc TMB
 init_tmb_flicc <- function(tmb_data) {
+
+  nlen     <- tmb_data$nlen
+  nyear    <- tmb_data$nyear
   ngear    <- tmb_data$ngear
   sel_type <- tmb_data$sel_type
   Lmid     <- tmb_data$Lmid
@@ -288,32 +237,29 @@ init_tmb_flicc <- function(tmb_data) {
   Linf     <- tmb_data$Linf_init
 
   Sm <- numeric(sum(tmb_data$sm_n))
-  pos <- 1
+  pos <- 1L
 
   for (g in seq_len(ngear)) {
-    obs_g  <- obs[, g]
+    obs_g <- apply(obs[, , g, drop = FALSE], 1, sum, na.rm = TRUE)
     mode_g <- Lmid[which.max(obs_g)]
     mode_rel <- max(mode_g / Linf, 1e-4)
 
     if (sel_type[g] == 1L) {
-      # logistic: c(log_SL50_rel, log_dSL_rel)
       SL50_rel <- mode_rel
       dSL_rel  <- 0.10
-      Sm[pos:(pos + 1)] <- c(log(SL50_rel), log(dSL_rel))
-      pos <- pos + 2
+      Sm[pos:(pos + 1L)] <- c(log(SL50_rel), log(dSL_rel))
+      pos <- pos + 2L
 
     } else if (sel_type[g] == 2L) {
-      # dsnormal: c(log_mode_rel, log_lsd_rel, log_rsd_rel)
       lsd_rel <- 0.10
       rsd_rel <- 0.10
-      Sm[pos:(pos + 2)] <- c(log(mode_rel), log(lsd_rel), log(rsd_rel))
-      pos <- pos + 3
+      Sm[pos:(pos + 2L)] <- c(log(mode_rel), log(lsd_rel), log(rsd_rel))
+      pos <- pos + 3L
 
     } else if (sel_type[g] == 3L) {
-      # normal: c(log_mode_rel, log_sd_rel)
       sd_rel <- 0.10
-      Sm[pos:(pos + 1)] <- c(log(mode_rel), log(sd_rel))
-      pos <- pos + 2
+      Sm[pos:(pos + 1L)] <- c(log(mode_rel), log(sd_rel))
+      pos <- pos + 2L
     }
   }
 
@@ -321,12 +267,13 @@ init_tmb_flicc <- function(tmb_data) {
     log_Linf   = log(tmb_data$Linf_init),
     log_Galpha = log(tmb_data$Galpha_init),
     log_Mk     = log(tmb_data$Mk_init),
-    log_Fk     = rep(log(0.5), ngear),
+    log_Fk     = matrix(log(0.5), nrow = nyear, ncol = ngear,
+                        dimnames = list(tmb_data$year_names, tmb_data$gear_names)),
     Sm         = Sm,
-    log_phi    = log(10)
+    log_phi    = log(10),
+    log_sigmaF = tmb_data$prior_sigmaF_mean
   )
 }
-
 #' Fit the FLicc TMB model
 #'
 #' Compiles, loads, and fits the FLicc TMB objective function to a single
@@ -345,58 +292,88 @@ init_tmb_flicc <- function(tmb_data) {
 #' @return An object of class \code{"flicc_tmb_fit"}.
 #'
 #' @export
+#' Fit multi-year FLicc TMB model
 fiticc <- function(lfd, stklen,
-                   sel_fun = c("logistic","normal","dsnormal"),
-                   catch_by_gear,
-                   settings = list(CVL=0.1,GL=50,catch.sd=0.05),
-                   compile = FALSE,
-                   silent = TRUE,
-                   dll = "FLicc",
-                   sel_fixed = NULL){
+                     sel_fun = c("logistic", "normal", "dsnormal"),
+                     catch_by_gear,
+                     settings = list(
+                       CVL = 0.1,
+                       GL = 50,
+                       catch.sd = 0.05,
+                       prior_sigmaF = c(log(0.7), 0.1, 1)
+                     ),
+                     years = NULL,
+                     iter = 1,
+                     compile = FALSE,
+                     silent = TRUE,
+                     dll = "FLicc",
+                     sel_fixed = NULL,FLRreport=TRUE ) {
 
   if (!requireNamespace("TMB", quietly = TRUE)) {
     stop("Package 'TMB' is required")
   }
 
 
-
-  lens<- an(dimnames(lfd[[1]])$len)
-  yrs = an(dimnames(lfd[[1]])$year)
-  nyrs = length(yrs)
-  lhpar <- stklen@lhpar
-  syrs = an(dimnames(stklen)$year)
-
-  i = nyrs
-
-  stkl <- window(stklen,start=syrs[i],end=syrs[i])
-
-  fq <- lapply(lfd,function(x){
-    (as.data.frame(yearMeans(x[,ac(yrs[i])]))$data)
-  })
-  pars <- dimnames(lhpar)$params
-
-  dl <- list(
-    LLB = lens,
-    fq = fq,
-    sel_fun = sel_fun,
-    catch_by_gear= catch_by_gear,
-    gear_names = names(fq),
-    Linf = an(lhpar["linf"]),
-    Mk = an(lhpar["Mk"]),
-    wt = as.data.frame(catch.wt(stkl))$data,
-    mat= as.data.frame(mat(stkl))$data,
-    mL = as.data.frame(m(stkl))$data,
-    CVL=settings$CVL,
-    GL = settings$GL,
-    catch.sd = settings$catch.sd,
-    linf.sd =  settings$linf.sd,
-    Mk.sd =  settings$Mk.sd
+  default_settings <- list(
+    CVL = 0.1,
+    GL = 50,
+    catch.sd = 0.05,
+    prior_sigmaF = c(log(0.3), 0.3, 1)   # optional
   )
 
-  tmb_data <- data_tmb_flicc(dl)
+  # ---- merge user settings with defaults ----
+  if (is.null(settings)) settings <- list()
+
+  if(any(settings$prior_sigmaF == FALSE)) settings$prior_sigmaF <- c(NA_real_, NA_real_, 0)
+
+  # fill missing elements
+  for (nm in names(default_settings)) {
+    if (is.null(settings[[nm]])) {
+      settings[[nm]] <- default_settings[[nm]]
+    }
+  }
+
+  unknown <- setdiff(names(settings), names(default_settings))
+  if (length(unknown) > 0) {
+    stop("Unknown settings: ", paste(unknown, collapse = ", "))
+  }
+
+  # subset iter in R; do not loop over iter in TMB
+  lfd_i <- lapply(lfd, function(x) x[, , iter])
+  stk_i <- stklen[, , , iter]
+
+  if (is.null(years)) {
+    years <- as.numeric(dimnames(lfd_i[[1]])$year)
+  }
+  years <- as.numeric(years)
+
+  if(!inherits(catch_by_gear, "FLQuants")){
+
+ catch_by_gear  <-  FLCore::FLQuants(Map(function(x,y){
+    flq = FLCore::quantSums(x)
+    flq[] <- y
+    flq
+  },x=lfd_i,y=catch_by_gear))
+
+ }
+
+  tmb_data <- data_tmb_flicc(
+    lfd = lfd_i,
+    stklen = stk_i,
+    sel_fun = sel_fun,
+    catch_by_gear = catch_by_gear,
+    settings = settings,
+    years = years
+  )
+
+  # Set priors for random walk on F (if nyear > 0)
+  tmb_data$prior_sigmaF_mean <- as.numeric(settings$prior_sigmaF[1])
+  tmb_data$prior_sigmaF_sd   <- as.numeric(settings$prior_sigmaF[2])
+  tmb_data$prior_sigmaF_use  <- as.integer(settings$prior_sigmaF[3])
+
+
   parameters <- init_tmb_flicc(tmb_data)
 
-  # Apply optional fixed selectivity settings
   fix_res <- apply_sel_fixed_flicc(
     parameters = parameters,
     tmb_data   = tmb_data,
@@ -404,42 +381,40 @@ fiticc <- function(lfd, stklen,
   )
   parameters <- fix_res$parameters
 
-  dll_path <- normalizePath(file.path("src", paste0(dll, ".dll")),
-                            winslash = "/", mustWork = FALSE)
-
-
   map <- list()
 
-  # Fixed by default; estimated only if a log.sd is supplied
-  if (length(dl$Linf) < 2 || is.na(dl$Linf[2])) {
+  if (is.null(settings$linf.sd)) {
     map$log_Linf <- factor(NA)
   }
-
-  if (length(dl$Mk) < 2 || is.na(dl$Mk[2])) {
+  if (is.null(settings$Mk.sd)) {
     map$log_Mk <- factor(NA)
   }
-
-  if (is.null(dl$CVL) || length(dl$CVL) < 2 || is.na(dl$CVL[2])) {
+  if (is.null(settings$CVL.sd)) {
     map$log_Galpha <- factor(NA)
   }
-
-  # Optional fixed selectivity parameters
   if (!is.null(fix_res$map_Sm)) {
     map$Sm <- fix_res$map_Sm
   }
+  if (length(map) == 0) {
+    map <- NULL
+  }
 
-  if (length(map) == 0) map <- NULL
+  if (compile) {
+    TMB::compile("src/FLicc.cpp")
+    dyn.load(dynlib("src/FLicc"))
+  }
 
   obj <- TMB::MakeADFun(
     data = tmb_data[setdiff(names(tmb_data),
-                            c("gear_names", "Linf_init", "Mk_init", "CVL_init", "Galpha_init"))],
+                            c("gear_names", "year_names",
+                              "Linf_init", "Mk_init", "CVL_init", "Galpha_init"))],
     parameters = parameters,
     map = map,
     DLL = dll,
     silent = silent
   )
 
-  opt <- stats::nlminb(
+  opt <- nlminb(
     start = obj$par,
     objective = obj$fn,
     gradient = obj$gr,
@@ -450,7 +425,7 @@ fiticc <- function(lfd, stklen,
 
   rep <- TMB::sdreport(obj)
   adrep <- summary(rep, "fixed")
-
+  report <- obj$report()
   par_tab <- data.frame(
     par = rownames(adrep),
     mpd = adrep[, 1],
@@ -459,19 +434,22 @@ fiticc <- function(lfd, stklen,
     stringsAsFactors = FALSE
   )
 
-  rep_list <- obj$report()
 
-  structure(
+  fit <- structure(
     list(
       opt = opt,
       obj = obj,
       rep = rep,
       par = par_tab,
-      report = rep_list,
+      report = report,
+      stklen= stklen,
       tmb_data = tmb_data
     ),
     class = "flicc_tmb_fit"
   )
+  if(FLRreport){fit$report <- as_FLQuants(fit,stklen)} else {fit$report$FLReport=FALSE}
+  return(fit)
+
 }
 
 

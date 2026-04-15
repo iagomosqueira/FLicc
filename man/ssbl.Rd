@@ -2,16 +2,18 @@
 % Please edit documentation in R/FLStockLen.R
 \name{ssbl}
 \alias{ssbl}
-\title{Spawning stock biomass for FLStockLen}
+\title{Spawning biomass by BRP year from an FLStockLen BRP object}
 \usage{
-ssbl(stk)
+ssbl(stk, spawn_time = attr(stk, "spawn_time", exact = TRUE) \%||\% 0)
 }
 \arguments{
-\item{stk}{An \code{FLStockLen} object.}
+\item{stk}{An object returned by \code{brp_stklen_flicc()}.}
+
+\item{spawn_time}{Fraction of the interval elapsed before spawning.}
 }
 \value{
-An \code{FLQuant}.
+An \code{FLQuant} over the BRP year dimension.
 }
 \description{
-Spawning stock biomass for FLStockLen
+Spawning biomass by BRP year from an FLStockLen BRP object
 }

@@ -2,79 +2,33 @@
 % Please edit documentation in R/blicc_tmb.R
 \name{data_tmb_flicc}
 \alias{data_tmb_flicc}
-\title{Build a TMB data list for FLicc}
+\title{Build multi-year TMB data list for FLicc}
 \usage{
-data_tmb_flicc(dl)
+data_tmb_flicc(
+  lfd,
+  stklen,
+  sel_fun,
+  catch_by_gear,
+  settings = list(CVL = 0.1, GL = 50, catch.sd = 0.05),
+  years = NULL
+)
 }
 \arguments{
-\item{dl}{A named list containing the FLicc model inputs. Expected elements
-include:
-\describe{
-\item{\code{fq}}{A named list of length-frequency vectors, one per gear.}
-\item{\code{LLB}}{Numeric vector of lower length-bin boundaries.}
-\item{\code{sel_fun}}{Character vector of selectivity functions by gear.
-Currently supported: \code{"logistic"} and \code{"dsnormal"}.}
-\item{\code{Catch}}{Numeric vector of relative catch proportions by gear.}
-\item{\code{catch_sd}}{Optional scalar controlling the strength of the
-log-ratio penalty linking modeled gear proportions to relative catch
-proportions. Smaller values imply stronger anchoring. Default is
-\code{0.01}.}
-\item{\code{gear_names}}{Optional character vector of gear names.}
-\item{\code{model_name}}{Character string used to identify the mortality
-model. If it contains \code{"length-inverse"}, inverse-length natural
-mortality is assumed.}
-\item{\code{ref_length}}{Reference length for inverse-length natural
-mortality.}
-\item{\code{a}, \code{b}}{Length-weight parameters used in post hoc SPR
-calculations.}
-\item{\code{L50}}{Length at 50 percent maturity.}
-\item{\code{GL}}{Number of Gauss-Laguerre quadrature points.}
-\item{\code{Linf}}{Numeric vector or scalar used for initialization and
-optionally prior specification. If length 2, the second value is treated
-as the prior SD on the log scale.}
-\item{\code{Mk}}{Numeric vector or scalar used for initialization and
-optionally prior specification. If length 2, the second value is treated
-as the prior SD on the log scale.}
-}}
+\item{lfd}{named list of FLQuant objects, one per gear}
+
+\item{stklen}{FLStockLen-like object with matching years}
+
+\item{sel_fun}{selectivity function per gear}
+
+\item{catch_by_gear}{numeric vector of relative catch by gear}
+
+\item{settings}{list with CVL, GL, catch.sd, optional linf.sd, Mk.sd, CVL.sd}
+
+\item{years}{optional vector of years to include}
 }
 \value{
-A named list containing validated and transformed data for TMB,
-including:
-\describe{
-\item{\code{obs}}{Observed counts matrix, length bins by gears.}
-\item{\code{Lmid}, \code{LLB}}{Length-bin midpoints and lower bounds.}
-\item{\code{sel_type}, \code{sm_start}, \code{sm_n}}{Selectivity
-bookkeeping objects for the TMB template.}
-\item{\code{node}, \code{quad_wt}}{Gauss-Laguerre quadrature nodes and
-weights.}
-\item{\code{prior_mu}, \code{prior_sd}, \code{prior_code},\code{catch_sd}}{Optional prior
-specification vectors.}
-\item{\code{Linf_init}, \code{Mk_init}}{Initial values for fixed or
-estimated biological parameters.}
-}
+list for TMB::MakeADFun
 }
 \description{
-Converts a user-supplied input list into the numeric data structures required
-by the FLicc TMB objective function. The function validates the main inputs,
-constructs observed length-frequency matrices by gear, derives length-bin
-midpoints, sets selectivity indexing, standardizes relative catch weights,
-builds Gauss-Laguerre quadrature inputs, and prepares optional prior vectors.
-}
-\details{
-The returned list is intended for direct use in \code{TMB::MakeADFun()}.
-Selectivity functions are internally coded as integers, with
-\code{1 = logistic} and \code{2 = dsnormal}. Selectivity parameters are packed
-into a single vector in C++, with \code{sm_start} providing zero-based start
-indices by gear.
-
-Gauss-Laguerre quadrature nodes and weights are generated using
-\code{statmod::gauss.quad()} and are used by the fishblicc-style
-population-at-length recursion.
-}
-\examples{
-\dontrun{
-tmb_data <- data_tmb_flicc(dl)
-str(tmb_data)
-}
-
+Build multi-year TMB data list for FLicc
 }

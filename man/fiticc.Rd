@@ -9,11 +9,15 @@ fiticc(
   stklen,
   sel_fun = c("logistic", "normal", "dsnormal"),
   catch_by_gear,
-  settings = list(CVL = 0.1, GL = 50, catch.sd = 0.05),
+  settings = list(CVL = 0.1, GL = 50, catch.sd = 0.05, prior_sigmaF = c(log(0.7), 0.1,
+    1)),
+  years = NULL,
+  iter = 1,
   compile = FALSE,
   silent = TRUE,
   dll = "FLicc",
-  sel_fixed = NULL
+  sel_fixed = NULL,
+  FLRreport = TRUE
 )
 }
 \arguments{

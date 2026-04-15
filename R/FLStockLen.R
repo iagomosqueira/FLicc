@@ -194,14 +194,42 @@ stocklen <- function(lfds, lhpar, m_model = c("constant", "inverse", "Lorenzen",
   return(out)
 }
 
-#' Spawning stock biomass for FLStockLen
+#' Spawning biomass by BRP year from an FLStockLen BRP object
 #'
-#' @param stk An \code{FLStockLen} object.
+#' @param stk An object returned by \code{brp_stklen_flicc()}.
+#' @param spawn_time Fraction of the interval elapsed before spawning.
 #'
-#' @return An \code{FLQuant}.
+#' @return An \code{FLQuant} over the BRP year dimension.
 #' @export
-ssbl <- function(stk) {
-  FLCore::quantSums(stock.n(stk) * stock.wt(stk) * mat(stk))
+ssbl <- function(stk, spawn_time = attr(stk, "spawn_time", exact = TRUE) %||% 0) {
+  z <- FLCore::harvest(stk) + FLCore::m(stk)
+  FLCore::quantSums(FLCore::stock.n(stk) * FLCore::stock.wt(stk) *
+                      FLCore::mat(stk) * exp(-z * spawn_time))
+}
+
+#' Fully selected fishing mortality from an FLStockLen BRP object
+#'
+#' @param stk An object returned by \code{brp_stklen_flicc()}.
+#'
+#' @return An \code{FLQuant} over the BRP year dimension.
+#' @export
+fapl <- function(stk) {
+  apply(FLCore::harvest(stk) ,c(2:6), max, na.rm = TRUE)
+
+}
+
+
+#' Recruitment proxy from an FLStockLen object
+#'
+#' Returns the abundance in the first length class, used here as a recruitment
+#' proxy for FLicc BRP objects.
+#'
+#' @param stk An object of class \code{FLStockLen}.
+#'
+#' @return An \code{FLQuant} over year.
+#' @export
+recl <- function(stk) {
+  FLCore::stock.n(stk)[1]
 }
 
 #' Compute catch numbers from stock numbers and mortalities
@@ -245,61 +273,132 @@ fbarl <- function(stk, lrange = NULL) {
   FLCore::quantMeans(harvest(stk)[idx,,,,,])
 }
 
-
 #' Update an FLStockLen object with FLicc fitted outputs
 #'
-#' Fills fitted values into an existing \code{FLStockLen} template, updating
-#' \code{stock.n}, \code{catch.n}, and \code{harvest} for a selected year.
+#' Fills an existing \code{FLStockLen} object with equilibrium
+#' length-based population and fishery quantities derived from a fitted
+#' FLicc model.
 #'
-#' @param fit A fitted \code{flicc_tmb_fit} object returned by \code{fiticc()}.
-#' @param stklen An \code{FLStockLen} object used as template.
-#' @param year Optional year to update. Defaults to the last year in \code{stklen},
-#'   consistent with the current \code{fiticc()} implementation.
-#' @param R0 Recruitment scaling factor used to scale per-recruit outputs
-#'   (default = 1000).
-#' @param report_names Optional named list giving the names of the elements in
-#'   \code{fit$report} corresponding to fitted vectors. Defaults are
-#'   \code{N_F}, \code{catch_n}, and \code{FM}.
+#' The function uses the fitted report components to reconstruct
+#' numbers-at-length, fishing mortality, natural mortality, and catch,
+#' and updates the corresponding slots of the supplied \code{FLStockLen}
+#' template.
 #'
-#' @return An updated \code{FLStockLen} object.
+#' @param fit A fitted \code{"flicc_tmb_fit"} object containing at least
+#'   \code{report$N}, \code{report$FM}, and \code{report$Mk}.
+#' @param stklen An \code{FLStockLen} object used as a template. Biological
+#'   quantities (e.g. weight, maturity) are retained from this object.
+#' @param year Optional year selection (currently not used explicitly but
+#'   reserved for future extensions).
+#' @param R0 Numeric recruitment scaling factor. Numbers-at-length are scaled
+#'   such that the smallest length class equals \code{R0}.
+#'
+#' @return An \code{FLStockLen} object with updated length-based population and
+#'   fishery quantities derived from the fitted FLicc outputs.
+#'
+#' @details
+#' This function assumes that the fitted report contains at least the following
+#' elements:
+#' \describe{
+#'   \item{\code{N}}{Numbers-at-length on a relative scale.}
+#'   \item{\code{FM}}{Fishing mortality ratio on the \eqn{F/M} scale.}
+#'   \item{\code{Mk}}{Natural mortality on the \eqn{M/k} scale.}
+#' }
+#'
+#' It also assumes that the life-history parameter slot
+#' \code{stklen@lhpar} contains \code{k}, which is used to convert
+#' \code{Mk} and \code{FM} back to annual mortality rates:
+#' \deqn{
+#' M = Mk \cdot k \quad \text{and} \quad F = FM \cdot M
+#' }
+#'
+#' Numbers-at-length are scaled relative to the smallest length class and
+#' multiplied by \code{R0}. Catch-at-length is then computed using the
+#' Baranov catch equation via \code{compute_catch.n()}.
+#'
+#' Discards are currently set to zero, and landings are assumed equal to catch.
+#'
+#' @seealso \code{\link{fiticc}}, \code{\link{compute_catch.n}}
+#'
+#' @examples
+#' data(alfonsino)
+#'
+#' fit <- fiticc(
+#'   lfd_alfonsino,
+#'   stklen_alfonsino,
+#'   sel_fun = c("dsnormal", "logistic"),
+#'   catch_by_gear = c(0.7, 0.3)
+#' )
+#'
+#' stkl <- flicc_stklen(fit, stklen_alfonsino)
+#'
+#' stock.n(stkl)
+#' harvest(stkl)
+#' catch.n(stkl)
+#'
 #' @export
-upd_stklen <- function(fit, stklen, year = NULL, R0 = 1000) {
+flicc_stklen <- function(fit, stklen, year = NULL, R0 = 1000){
 
-  stopifnot(inherits(fit, "flicc_tmb_fit"))
+  # -----------------------------
+  # checks
+  # -----------------------------
   stopifnot(methods::is(stklen, "FLStockLen"))
 
-  if (is.null(year)) {
-    year <- tail(dimnames(stklen)$year, 1)
-  } else {
-    year <- as.character(year)
-  }
-
   rep <- fit$report
+  lhpar <- stklen@lhpar
 
-  stky <- FLCore::window(stklen, start = year, end = year)
-
-  dn <- dimnames(stock.n(stky))
-  d  <- dim(stock.n(stky))
-
-  make_FLQuant <- function(x) {
-    FLCore::FLQuant(array(as.numeric(x), dim = d, dimnames = dn))
+  if (!all(c("N", "F", "M") %in% names(rep))) {
+    stop("fit$report must contain 'N', 'FM', and 'Mk'.")
   }
 
-  stock.n(stky) <- make_FLQuant(rep$N * R0)
-  harvest(stky) <- make_FLQuant(rep$F_len)
+  if (!"k" %in% rownames(lhpar)) {
+    stop("stklen@lhpar must contain 'k'.")
+  }
 
-  catch.n(stky)    <- compute_catch.n(stock.n(stky), harvest(stky), m(stky))
+  # -----------------------------
+  # clone template
+  # -----------------------------
+  stky <- stklen
+
+  # -----------------------------
+  # numbers-at-length (scaled)
+  # -----------------------------
+  Nrel <- rep$N %/% rep$N[1, ]   # relative to first length
+  stock.n(stky) <- FLQuant(Nrel * R0/1000,unit="1000")
+
+  # -----------------------------
+  # mortality
+  # -----------------------------
+  k <- lhpar["k"]
+
+  harvest(stky) <- rep$F
+  m(stky)       <- rep$M           # M
+
+  # -----------------------------
+  # catch numbers
+  # -----------------------------
+  catch.n(stky) <- compute_catch.n(
+    stock.n(stky),
+    harvest(stky),
+    m(stky)
+  )
+
   landings.n(stky) <- catch.n(stky)
   discards.n(stky) <- catch.n(stky) * 0
 
-  stock(stky)    <- FLCore::computeStock(stky)
+  # -----------------------------
+  # biomass quantities
+  # -----------------------------
+  stock(stky)    <- rep$spr
   catch(stky)    <- FLCore::computeCatch(stky)
   landings(stky) <- catch(stky)
   discards(stky) <- catch(stky) * 0
 
-  stklen[, year] <- stky
+  # -----------------------------
+  # units
+  # -----------------------------
+  units(stky) <- standardUnits(stky)
 
-  return(stklen)
+  return(stky)
 }
-
 

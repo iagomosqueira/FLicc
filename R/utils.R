@@ -1,3 +1,273 @@
+#' Convert FLicc TMB report output to FLQuant/FLQuants objects
+#'
+#' Converts selected elements from a fitted FLicc TMB report and its
+#' associated `tmb_data` input list into a structured list of FLR objects.
+#' The returned list contains `FLQuant` and `FLQuants` objects for
+#' abundance, observed and predicted length compositions, selectivity,
+#' fishing mortality by gear, and spawning potential ratio.
+#'
+#' This helper is intended to provide a more FLR-friendly representation of
+#' model output than the raw arrays returned by `obj$report()`.
+#'
+#' @param report A list of reported model outputs, typically returned by
+#'   `obj$report()` from a fitted TMB model. Expected elements include
+#'   `N_y`, `Sel`, `plen`, `plen_all_y`, `Fk`, and `spr_y`.
+#' @param tmb_data A TMB data list used to fit the model. Expected elements
+#'   include `year_names`, `gear_names`, `LLB`, and `obs`.
+#'
+#' @details
+#' The returned object is a named list with the following components:
+#' \describe{
+#'   \item{`N`}{An `FLQuant` containing estimated numbers-at-length by year.}
+#'   \item{`sel`}{An `FLQuants` object with one `FLQuant` per gear,
+#'   containing selectivity-at-length.}
+#'   \item{`obslen`}{An `FLQuants` object with one `FLQuant` per gear,
+#'   containing observed length frequencies by year.}
+#'   \item{`predlen_gear`}{An `FLQuants` object with one `FLQuant` per gear,
+#'   containing predicted length compositions by year and gear.}
+#'   \item{`predlen`}{An `FLQuants` object containing predicted length
+#'   compositions by year for each gear-specific component returned in
+#'   `report$plen_all_y`.}
+#'   \item{`Fk`}{An `FLQuants` object with one `FLQuant` per gear,
+#'   containing fishing mortality by year.}
+#'   \item{`spr`}{An `FLQuant` containing spawning potential ratio by year.}
+#' }
+#'
+#' Length classes are mapped to the `quant`/`len` dimension, years to the
+#' `year` dimension, and gears are represented as separate elements in
+#' `FLQuants` objects.
+#'
+#' @return A named list containing `FLQuant` and `FLQuants` objects.
+#'
+#' @seealso [FLCore::FLQuant()], [FLCore::FLQuants()]
+#'
+#' @examples
+#' \dontrun{
+#' rep <- fit$obj$report()
+#' flqs <- as_FLQuants(rep, fit$tmb_data)
+#'
+#' flqs$N
+#' flqs$obslen
+#' flqs$predlen_gear
+#' flqs$predlen
+#' flqs$spr
+#' names(flqs$obslen)
+#' names(flqs$predlen_gear)
+#' }
+#'
+#' @export
+
+as_FLQuants <- function(fit,stklen) {
+
+  tmb_data <- fit$tmb_data
+  report <- fit$report
+  yrs   <- an(tmb_data$year_names)
+  gears <- tmb_data$gear_names
+  lens  <- an(tmb_data$LLB)
+  k <- an(stklen@lhpar["k"])
+
+
+  out <- list()
+
+  out$N <- FLCore::FLQuant(
+    report$N_y,
+    dimnames = list(
+      lens = lens,
+      year = yrs,
+      unit = "unique",
+      season = "all",
+      area = "unique",
+      iter = "1"
+    )
+  )
+  units(out$N) <- "1000"
+
+
+  out$w_at_len <- stklen@catch.wt
+
+
+  # FLQuants
+  out$sel_gear<- FLCore::FLQuants(lapply(1:length(gears),function(x){
+    dat <- report$Sel[,x]
+    FLCore::FLQuant(
+      dat,
+      dimnames = list(
+        len = lens,
+        year = "all",
+        unit = "unique",
+        season = "all",
+        area = "unique",
+        iter = "1"
+      ))
+  }))
+  names(out$sel_gear) <- gears
+
+  # FLQuants
+  out$sel <-FLCore::FLQuant(
+    report$sel_joint,
+      dimnames = list(
+        len = lens,
+        year = yrs,
+        unit = "unique",
+        season = "all",
+        area = "unique",
+        iter = "1"
+    ))
+  out$sel <-  out$sel%/%apply( out$sel,2,max)
+
+
+
+  # FLQuants
+  out$catch_by_gear <- FLCore::FLQuants(lapply(1:length(gears),function(x){
+    dat <- tmb_data$catch_wt[,x]
+    FLCore::FLQuant(
+      dat,
+      dimnames = list(
+        len = "all",
+        year = yrs,
+        unit = "unique",
+        season = "all",
+        area = "unique",
+        iter = "1"
+      ))
+  }))
+  names(out$catch_by_gear) <-  gears
+
+
+  # FLQuants
+  out$predlen_gear <- FLCore::FLQuants(lapply(1:length(gears),function(x){
+    dat <- report$plen[,,x]
+    FLCore::FLQuant(
+      dat,
+      dimnames = list(
+        len = lens,
+        year = yrs,
+        unit = "unique",
+        season = "all",
+        area = "unique",
+        iter = "1"
+      ),unit="cm")
+  }))
+  names(out$predlen_gear) <- gears
+
+
+
+    dat <- report$plen_all_y
+    out$predlen <- FLCore::FLQuant(
+      dat,
+      dimnames = list(
+        len = lens,
+        year = yrs,
+        unit = "unique",
+        season = "all",
+        area = "unique",
+        iter = "1"
+      ),unit="cm")
+    #units(flq) <- "proportion"
+
+  names(out$predlen) <- gears
+
+  out$obslen <- FLCore::FLQuants(lapply(1:length(gears),function(x){
+    dat <- tmb_data$obs[,,x]
+    FLCore::FLQuant(
+      dat,
+      dimnames = list(
+        len = lens,
+        year = yrs,
+        unit = "unique",
+        season = "all",
+        area = "unique",
+        iter = "1"
+      ),unit="cm")
+  }))
+  names(out$obslen) <- gears
+
+  out$Mk <- FLCore::FLQuant(
+    report$M,
+    dimnames = list(
+      len = lens,
+      year = yrs,
+      unit = "unique",
+      season = "all",
+      area = "unique",
+      iter = "1"
+    ))
+  units(out$Mk) <- "Mk"
+
+  out$Fk <- FLQuants(lapply(1:length(gears),function(x){
+    dat <- report$Fk[,x]
+    flq = FLCore::FLQuant(
+      dat,
+      dimnames = list(
+        len = "all",
+        year = yrs,
+        unit = "unique",
+        season = "all",
+        area = "unique",
+        iter = "1"
+      ))
+    units(flq) <- "Fk"
+    flq
+  }))
+  names(out$Fk) <- gears
+
+  out$F <-FLCore::FLQuant(
+    report$Fk_l*k,
+    dimnames = list(
+      len = lens,
+      year = yrs,
+      unit = "unique",
+      season = "all",
+      area = "unique",
+      iter = "1"
+    ))
+
+  out$Fap <- apply(out$F,2:6,max,na.rm=TRUE)
+
+  out$M <- FLCore::FLQuant(
+    report$Mk*k,
+    dimnames = list(
+      len = lens,
+      year = yrs,
+      unit = "unique",
+      season = "all",
+      area = "unique",
+      iter = "1"
+    ))
+
+  out$mat <- FLCore::mat(stklen)
+
+  out$spr <- FLCore::FLQuant(
+    matrix(report$spr_y, nrow = 1),
+    dimnames = list(
+      quant = "all",
+      year = yrs,
+      unit = "unique",
+      season = "all",
+      area = "unique",
+      iter = "1"
+    )
+  )
+  units(out$spr) <- "spr"
+
+  out$lhpar <- stklen@lhpar
+  out$lhpar["linf"] <- report$Linf
+  out$lhpar["Mk"] <- report$Mk
+  out$lhpar["M"] <- out$lhpar["k"]*report$Mk
+
+  out$selpars <- selpars_flicc(fit)
+  out$pars <- FLPar(Linf=report$Linf, Galpha= report$Galpha,
+                    Gbeta = report$Gbeta,phi=report$phi)
+  out$Lmid = tmb_data$Lmid
+  out$node <- tmb_data$node
+  out$quad_wt <- tmb_data$quad_wt
+  out$FLReport <- TRUE
+  return(out)
+
+}
+
+
+
 
 #' Lorenzen natural mortality at length
 #'
@@ -39,6 +309,126 @@ m_gislason <- function(len, linf, k) {
   exp(0.55 - 1.61 * log(len) + 1.44 * log(linf) + log(k))
 }
 
+#' Selectivity parameter names by selectivity function
+#'
+#' Returns the expected user-facing selectivity parameter names for each
+#' supported FLicc selectivity function. These names are intended for
+#' reporting, helper constructors, and user input on the natural length scale.
+#'
+#' For logistic selectivity, the user-facing parameterization is
+#' \code{SL50} and \code{SL95}, where \code{SL50} is the length at 50 percent
+#' selectivity and \code{SL95} is the length at 95 percent selectivity.
+#' Internally, the TMB model uses \code{SL50} and
+#' \code{dSL = SL95 - SL50}, but this internal representation is hidden from
+#' the user.
+#'
+#' For double-sided normal selectivity, parameters are
+#' \code{mode}, \code{lsd}, and \code{rsd}, corresponding to the modal length,
+#' left-side standard deviation, and right-side standard deviation.
+#'
+#' For symmetric normal selectivity, parameters are
+#' \code{mode} and \code{sd}, corresponding to the modal length and standard
+#' deviation.
+#'
+#' @return A named list with one character vector per supported selectivity
+#'   function:
+#'   \describe{
+#'     \item{\code{logistic}}{\code{c("SL50", "SL95")}}
+#'     \item{\code{dsnormal}}{\code{c("mode", "lsd", "rsd")}}
+#'     \item{\code{normal}}{\code{c("mode", "sd")}}
+#'   }
+#'
+#' @details
+#' These parameter names are intended as the standard user-facing convention
+#' throughout FLicc. They are especially useful when:
+#' \itemize{
+#'   \item constructing \code{FLPar} or \code{FLPars} objects for selectivity,
+#'   \item extracting fitted selectivity parameters for reporting,
+#'   \item validating user input in helper functions,
+#'   \item mapping between natural-scale selectivity parameters and the internal
+#'     packed TMB parameter vector \code{Sm}.
+#' }
+#'
+#' Internally, the TMB objective function parameterizes selectivity relative to
+#' \code{Linf} on the log scale. For example, logistic selectivity is fitted
+#' internally as \code{log(SL50 / Linf)} and \code{log((SL95 - SL50) / Linf)}.
+#' However, reporting and helper functions should generally use the more
+#' interpretable natural-scale names returned here.
+#'
+#' @examples
+#' sel_parnames <- list(
+#'   logistic = c("SL50", "SL95"),
+#'   dsnormal = c("mode", "lsd", "rsd"),
+#'   normal   = c("mode", "sd")
+#' )
+#'
+#' sel_parnames$logistic
+#' sel_parnames$dsnormal
+#' sel_parnames$normal
+#'
+#' # Example FLPar objects on the natural length scale
+#' trawl_par <- FLCore::FLPar(setNames(c(24, 30), c("SL50", "SL95")))
+#' gillnet_par <- FLCore::FLPar(setNames(c(28, 4, 8), c("mode", "lsd", "rsd")))
+#'
+#' @seealso \code{\link[FLCore]{FLPar}}, \code{\link[FLCore]{FLPars}}
+#'
+#'@export
+
+selpars_flicc <- function(fit) {
+
+  parlist <- fit$obj$env$parList()
+  Sm <- parlist$Sm
+  Linf <- exp(parlist$log_Linf)
+
+  sel_type   <- fit$tmb_data$sel_type
+  sm_start   <- fit$tmb_data$sm_start
+  sm_n       <- fit$tmb_data$sm_n
+  gear_names <- fit$tmb_data$gear_names
+
+  out <- vector("list", length(gear_names))
+  names(out) <- gear_names
+
+  for (g in seq_along(gear_names)) {
+
+    start <- sm_start[g] + 1L
+    idx <- start:(start + sm_n[g] - 1L)
+    pars <- Sm[idx]
+
+    if (sel_type[g] == 1L) {
+      # internal: SL50, dSL
+      SL50 <- exp(pars[1]) * Linf
+      dSL  <- exp(pars[2]) * Linf
+      SL95 <- SL50 + dSL
+
+      out[[g]] <- FLCore::FLPar(
+        setNames(c(SL50 , SL95), c("SL50", "SL95"))
+      )
+
+    } else if (sel_type[g] == 2L) {
+      mode <- exp(pars[1]) * Linf
+      lsd  <- exp(pars[2]) * Linf
+      rsd  <- exp(pars[3]) * Linf
+
+      out[[g]] <- FLCore::FLPar(
+        setNames(c(mode, lsd, rsd), c("mode", "lsd", "rsd"))
+      )
+
+    } else if (sel_type[g] == 3L) {
+      mode <- exp(pars[1]) * Linf
+      sd   <- exp(pars[2]) * Linf
+
+      out[[g]] <- FLCore::FLPar(
+        setNames(c(mode, sd), c("mode", "sd"))
+      )
+
+    } else {
+      stop("Unknown sel_type for gear ", gear_names[g])
+    }
+    FLCore::units(out[[g]]) <- "cm"
+  }
+
+  FLPars(out)
 
 
+}
 

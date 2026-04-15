@@ -49,7 +49,8 @@ and \code{rsd = exp(log_rsd_rel) * Linf}.
 }
 \examples{
 \dontrun{
-tmb_data <- data_tmb_flicc(dl)
+data(alfonsino)
+tmb_data <- data_tmb_flicc(lfd,stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear = c(0.7,0.3))
 par0 <- init_tmb_flicc(tmb_data)
 str(par0)
 }

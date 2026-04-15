@@ -2,24 +2,82 @@ useDynLib(FLicc, .registration = TRUE)
 
 import("TMB")
 import("FLCore")
-import("ggplotFL")
 import("ggplot2")
-
-importFrom("statmod", "gauss.quad")
+import("ggplotFL")
+import("doFuture")
+importFrom("progressr",
+  "progressor")
+importFrom("scales",
+  "comma",
+  "scientific")
 importFrom("methods", "as")
-importFrom("stats", "dnorm", "nlminb")
+importFrom("stats", "aggregate", "dnorm", "lm", "na.omit", "runif")
 importFrom("utils", "data")
 
-export(m_gislason)
-export(m_lorenzen)
-export(stocklen)
+
+# --- Core TMB workflow ---
 export(data_tmb_flicc)
 export(init_tmb_flicc)
 export(fiticc)
-export(plot_fiticc)
-export(plot_plen)
-export(plot_lfd)
 export(apply_sel_fixed_flicc)
-export(upd_stklen)
+
+# --- FLR conversion & utilities ---
+export(as_FLQuants)
+export(selpars_flicc)
+export(m_lorenzen)
+export(m_gislason)
+
+# --- Core FLicc recursion & helpers ---
+export(n_f_flicc)
+export(resolve_f_input_flicc)
+export(calc_Z_l)
+export(nf_from_flicc)
+export(flicc_refpars)
+
+# --- Equilibrium quantities ---
+export(nf_flicc)
+export(cf_flicc)
+export(pr_flicc)
+export(spr_flicc)
+export(fspr_flicc)
+export(fmsy_flicc)
+export(ypr_flicc)
+
+# --- Per-recruit & BRP ---
+export(prbrp_flicc)
+export(rr0_bh)
+export(yieldf)
+export(ssbf)
+export(ssbrel)
+
+
+# --- FLStockLen BRP + reference points ---
+export(eqstklen)
+export(brp_flqs_flicc)
+export(refpts_flicc)
+export(yeql)
+export(ssbeql)
+export(spreql)
+export(fcur_flicc)
+export(sprcur_flicc)
+
+
+# --- FLStockLen utilities ---
+export(stocklen)
+export(flicc_stklen)
 export(ssbl)
+export(fapl)
+export(recl)
+export(compute_catch.n)
 export(fbarl)
+
+# --- Indicators ---
+export(LBIspr)
+
+# --- Plotting ---
+export(plot_lfd)
+export(plot_spr)
+export(plot_len)
+export(plot_LBIspr)
+export(plot_eqcurves)
+export(plot_lbfao)

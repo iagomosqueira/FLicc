@@ -1,170 +1,530 @@
 
-#' Plot observed and fitted length compositions by gear using ggplot2
+#' Plot spawning potential ratio by year
 #'
-#' Produces a faceted ggplot comparing observed length-frequency counts with
-#' fitted expected counts for each gear in a fitted FLicc/TMB model.
+#' Plots spawning potential ratio (SPR) by year from a fitted
+#' `flicc_tmb_fit` object using `ggplot2`.
 #'
-#' @param fit A fitted model object returned by \code{fiticc()}.
+#' SPR values are taken from `fit$report$spr`, which is expected to be an
+#' `FLQuant` indexed by year.
 #'
-#' @return A \code{ggplot} object.
-#'
-#' @export
-plot_fiticc <- function(fit) {
-  obs <- fit$tmb_data$obs
-  mu  <- fit$report$mu
-  L   <- fit$tmb_data$Lmid
-  gn  <- fit$tmb_data$gear_names
-
-  nlen  <- nrow(obs)
-  ngear <- ncol(obs)
-
-  df_obs <- data.frame(
-    length = rep(L, times = ngear),
-    gear   = rep(gn, each = nlen),
-    count  = as.vector(obs),
-    stringsAsFactors = FALSE
-  )
-
-  df_fit <- data.frame(
-    length = rep(L, times = ngear),
-    gear   = rep(gn, each = nlen),
-    count  = as.vector(mu),
-    stringsAsFactors = FALSE
-  )
-
-  ggplot2::ggplot() +
-    ggplot2::geom_segment(
-      data = df_obs,
-      ggplot2::aes(x = length, xend = length, y = 0, yend = count),
-      linewidth = 0.8
-    ) +
-    ggplot2::geom_line(
-      data = df_fit,
-      ggplot2::aes(x = length, y = count),
-      linewidth = 1
-    ) +
-    ggplot2::facet_wrap(~ gear, ncol = 1, scales = "free_y") +
-    ggplot2::labs(x = "Length", y = "Count") +
-    ggplot2::theme_bw()
-}
-
-#' Plot FLicc size compositions in an LBSPR-style layout
-#'
-#' Creates a ggplot showing observed and fitted size compositions as
-#' grey bars plus a fitted line. By default the plot uses the catch-weighted
-#' overall proportions reported by TMB. Optionally, gear-specific panels can
-#' be drawn using the within-gear observed and predicted proportions.
-#'
-#' @param fit A fitted FLicc object returned by \code{fiticc()}.
-#' @param by_gear Logical. If \code{FALSE} (default), plot the overall
-#'   catch-weighted observed and predicted proportions at length. If \code{TRUE},
-#'   plot separate panels by gear.
+#' @param fit A fitted `flicc_tmb_fit` object.
 #' @param title Optional plot title.
-#' @param observed_fill Fill colour for observed bars.
-#' @param observed_colour Outline colour for observed bars.
-#' @param fitted_colour Line colour for fitted proportions.
-#' @param fitted_linewidth Line width for fitted proportions.
+#' @param line_colour Colour of the SPR time-series line.
+#' @param point_colour Colour of the SPR points.
+#' @param linewidth Line width for the SPR time-series line.
+#' @param point_size Point size for the SPR observations.
+#' @param ymax Optional upper y-axis limit. If `NULL`, this is set to the
+#'   maximum of the data, the reference levels, and `0.6`.
+#' @param reflines Logical. If `TRUE`, horizontal reference lines are added.
+#' @param ref_levels Numeric vector of SPR reference levels.
+#' @param ref_colours Character vector of colours for the SPR reference lines.
+#' @param ref_linetype Line type for the SPR reference lines.
 #'
-#' @return A \code{ggplot} object.
+#' @details
+#' Reference lines can be toggled on or off using `reflines`. Their levels and
+#' colours can be controlled with `ref_levels` and `ref_colours`.
+#'
+#' The function expects the fitted object to contain:
+#' \describe{
+#'   \item{`fit$report$spr`}{An `FLQuant` of spawning potential ratio by year.}
+#' }
+#'
+#' @return A `ggplot` object.
+#'
+#' @seealso [plot_len()]
+#'
+#' @examples
+#' \dontrun{
+#'
+#' fit <- fiticc(lfd_alfonsino,stklen_alfonsino,sel_fun=c("dsnormal","logistic"),catch_by_gear = c(0.7,0.3))
+#' plot_spr(fit)
+#' plot_spr(fit, reflines = FALSE)
+#' plot_spr(fit, ref_levels = c(0.7, 0.4, 0.2))
+#' }
 #'
 #' @export
-plot_plen <-  function(fit,
-                       by_gear = FALSE,
-                       title = NULL,
-                       observed_fill = "grey75",
-                       observed_colour = "black",
-                       fitted_colour = "blue",
-                       fitted_linewidth = 1,
-                       len_by = 2) {
+plot_spr <- function(fit,
+                     title = NULL,
+                     line_colour = "black",
+                     point_colour = "black",
+                     linewidth = 0.6,
+                     point_size = 2,
+                     ymax = NULL,
+                     reflines = TRUE,
+                     ref_levels = c(0.4, 0.2, 0.1),
+                     ref_colours = c("darkgreen", "orange", "red"),
+                     ref_linetype = 2) {
 
-  L <- fit$tmb_data$Lmid
-  binwidth <- if (length(L) > 1) min(diff(L)) * 0.9 else 0.9
-
-  x_breaks <- seq(
-    from = floor(min(L) / len_by) * len_by,
-    to   = ceiling(max(L) / len_by) * len_by,
-    by   = len_by
-  )
-
-  if (!by_gear) {
-    df_obs <- data.frame(
-      length = L,
-      proportion = fit$report$obs_p_l,
-      stringsAsFactors = FALSE
-    )
-
-    df_fit <- data.frame(
-      length = L,
-      proportion = fit$report$pred_p_l,
-      stringsAsFactors = FALSE
-    )
-
-    p <- ggplot2::ggplot() +
-      ggplot2::geom_col(
-        data = df_obs,
-        ggplot2::aes(x = length, y = proportion),
-        width = binwidth,
-        fill = observed_fill,
-        colour = observed_colour
-      ) +
-      ggplot2::geom_line(
-        data = df_fit,
-        ggplot2::aes(x = length, y = proportion),
-        colour = fitted_colour,
-        linewidth = fitted_linewidth
-      ) +
-      ggplot2::scale_x_continuous(breaks = x_breaks) +
-      ggplot2::labs(
-        x = "Length",
-        y = "Proportion at length",
-        title = title
-      ) +
-      ggplot2::theme_bw()
-
-    return(p)
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    stop("Package 'ggplot2' is required.")
   }
 
-  gn <- fit$tmb_data$gear_names
-  nlen <- length(L)
-  ngear <- length(gn)
+  if (is.null(fit$report$spr)) {
+    stop("fit$report$spr not found.")
+  }
 
-  df_obs <- data.frame(
-    length = rep(L, times = ngear),
-    gear = rep(gn, each = nlen),
-    proportion = as.vector(fit$report$obs_p_lg),
-    stringsAsFactors = FALSE
-  )
+  df <- as.data.frame(fit$report$spr)
 
-  df_fit <- data.frame(
-    length = rep(L, times = ngear),
-    gear = rep(gn, each = nlen),
-    proportion = as.vector(fit$report$pred_p_lg),
-    stringsAsFactors = FALSE
-  )
+  if (!all(c("year", "data") %in% names(df))) {
+    stop("Could not coerce fit$report$spr to a data.frame with columns 'year' and 'data'.")
+  }
 
-  ggplot2::ggplot() +
+  df <- df[!is.na(df$data), ]
+  df$year_num <- as.numeric(as.character(df$year))
+
+  if (is.null(ymax)) {
+    ymax <- max(df$data, ref_levels, 0.6, na.rm = TRUE)
+  }
+
+  if (is.null(title)) {
+    title <- "Spawning potential ratio"
+  }
+
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = year_num, y = data)) +
+    ggplot2::geom_line(
+      colour = line_colour,
+      linewidth = linewidth
+    ) +
+    ggplot2::geom_point(
+      colour = point_colour,
+      size = point_size
+    ) +
+    ggplot2::scale_x_continuous(breaks = df$year_num) +
+    ggplot2::coord_cartesian(ylim = c(0, ymax)) +
+    ggplot2::labs(
+      x = "Year",
+      y = "SPR",
+      title = title
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      panel.grid.minor = ggplot2::element_blank(),
+      plot.title = ggplot2::element_text(hjust = 0.5)
+    )
+
+  if (isTRUE(reflines)) {
+    for (i in seq_along(ref_levels)) {
+      p <- p + ggplot2::geom_hline(
+        yintercept = ref_levels[i],
+        colour = ref_colours[i],
+        linetype = ref_linetype,linewidth=0.7
+      )
+    }
+  }
+
+  return(p)
+}
+
+
+#' Plot observed and predicted length compositions
+#'
+#' Plots observed and predicted length compositions from a fitted
+#' `flicc_tmb_fit` object using `ggplot2`. Observed length frequencies are
+#' taken from `fit$report$obslen` and predicted length compositions from
+#' `fit$report$predlen_gear`.
+#'
+#' The function can subset by year and gear, and can either display separate
+#' year-by-gear panels or aggregate across selected gears using the gear
+#' weights in `fit$tmb_data$catch_wt`.
+#'
+#' @param fit A fitted `flicc_tmb_fit` object.
+#' @param year Optional year selection. Can be `NULL` for all years, a vector
+#'   of year values matching the year dimnames, or numeric indices.
+#' @param gear Optional gear selection. Can be `NULL` for all gears, a vector
+#'   of gear names, or numeric indices.
+#' @param by_gear Logical. If `TRUE`, panels are shown by year and gear. If
+#'   `FALSE`, selected gears are combined using `fit$tmb_data$catch_wt`.
+#' @param title Optional plot title.
+#' @param observed_fill Fill colour for observed length composition bars.
+#' @param observed_colour Border colour for observed length composition bars.
+#' @param fitted_colour Colour for fitted length composition lines.
+#' @param fitted_linewidth Line width for fitted length composition lines.
+#' @param len_by Integer giving the spacing of x-axis tick marks for length.
+#'
+#' @details
+#' Observed length frequencies are standardized within each year and gear to
+#' proportions before plotting. When `by_gear = FALSE`, the selected gears are
+#' combined using the relative gear weights stored in `fit$tmb_data$catch_wt`.
+#'
+#' The function expects the fitted object to contain:
+#' \describe{
+#'   \item{`fit$report$obslen`}{An `FLQuants` object of observed length
+#'   frequencies by gear.}
+#'   \item{`fit$report$predlen_gear`}{An `FLQuants` object of predicted length
+#'   compositions by gear.}
+#' }
+#'
+#' @return A `ggplot` object.
+#'
+#' @seealso [plot_spr()]
+#'
+#' @examples
+#' \dontrun{
+#' fit <- fiticc(lfd_alfonsino,stklen_alfonsino,sel_fun=c("dsnormal","logistic"),catch_by_gear = c(0.7,0.3))
+#' plot_len(fit)
+#' plot_len(fit, year = 2022:2024)
+#' plot_len(fit, gear = "Gillnet", by_gear = TRUE)
+#' plot_len(fit, gear = c("Trawl", "Gillnet"), year = 2022:2024, by_gear = TRUE)
+#' }
+#'
+#' @export
+plot_len <- function(fit,
+                      year = NULL,
+                      gear = NULL,
+                      by_gear = FALSE,
+                      title = NULL,
+                      observed_fill = "grey75",
+                      observed_colour = "black",
+                      fitted_colour = "blue",
+                      fitted_linewidth = 1,
+                      len_by = 10) {
+
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    stop("Package 'ggplot2' is required.")
+  }
+
+  if (is.null(fit$report$obslen)) {
+    stop("fit$report$obslen not found.")
+  }
+  if (is.null(fit$report$predlen_gear)) {
+    stop("fit$report$predlen_gear not found.")
+  }
+
+  obs_flqs <- fit$report$obslen
+  fit_flqs <- fit$report$predlen_gear
+
+  gear_labels <- names(obs_flqs)
+  if (is.null(gear_labels) || any(gear_labels == "")) {
+    stop("fit$report$obslen must be a named FLQuants object.")
+  }
+
+  #-----------------------------
+  # resolve gear selection
+  #-----------------------------
+  if (is.null(gear)) {
+    gear_sel <- gear_labels
+  } else if (is.numeric(gear) || is.integer(gear)) {
+    if (!all(gear %in% seq_along(gear_labels))) {
+      stop("Numeric 'gear' must be valid gear indices.")
+    }
+    gear_sel <- gear_labels[gear]
+  } else {
+    gear_sel <- as.character(gear)
+    if (!all(gear_sel %in% gear_labels)) {
+      stop("Character 'gear' must match names(fit$report$obslen).")
+    }
+  }
+
+  #-----------------------------
+  # helper: FLQuant -> data.frame
+  #-----------------------------
+  flq_to_df <- function(flq, gear_name, value_name) {
+    df <- as.data.frame(flq)
+
+    len_col <- intersect(c("len", "quant"), names(df))
+    if (length(len_col) == 0) {
+      stop("Could not find length column ('len' or 'quant') in FLQuant data.")
+    }
+    len_col <- len_col[1]
+
+    if (!all(c("year", "data") %in% names(df))) {
+      stop("FLQuant coercion did not return expected columns 'year' and 'data'.")
+    }
+
+    df <- df[, c(len_col, "year", "data")]
+    names(df) <- c("len", "year", value_name)
+
+    df$len  <- as.numeric(as.character(df$len))
+    df$year <- as.character(df$year)
+    df$gear <- gear_name
+    df
+  }
+
+  #-----------------------------
+  # build long data frame from FLQuants
+  #-----------------------------
+  obs_list <- lapply(gear_sel, function(g) {
+    flq_to_df(obs_flqs[[g]], gear_name = g, value_name = "observed")
+  })
+
+  fit_list <- lapply(gear_sel, function(g) {
+    flq_to_df(fit_flqs[[g]], gear_name = g, value_name = "fitted")
+  })
+
+  obs_df <- do.call(rbind, obs_list)
+  fit_df <- do.call(rbind, fit_list)
+
+  df <- merge(obs_df, fit_df, by = c("len", "year", "gear"), all = TRUE)
+
+  #-----------------------------
+  # resolve year selection
+  #-----------------------------
+  year_labels <- sort(unique(df$year))
+
+  if (is.null(year)) {
+    year_sel <- year_labels
+  } else {
+    year_chr <- as.character(year)
+
+    if (is.numeric(year) || is.integer(year)) {
+      if (all(year_chr %in% year_labels)) {
+        year_sel <- year_chr
+      } else if (all(year %in% seq_along(year_labels))) {
+        year_sel <- year_labels[year]
+      } else {
+        stop("Requested 'year' not found.")
+      }
+    } else {
+      if (!all(year_chr %in% year_labels)) {
+        stop("Requested 'year' not found.")
+      }
+      year_sel <- year_chr
+    }
+  }
+
+  df <- df[df$year %in% year_sel, , drop = FALSE]
+
+  # preserve selected order
+  df$year <- factor(df$year, levels = year_sel)
+  df$gear <- factor(df$gear, levels = gear_sel)
+
+  #-----------------------------
+  # standardize observed within year x gear
+  #-----------------------------
+  split_id <- interaction(df$year, df$gear, drop = TRUE)
+  obs_sum <- ave(df$observed, split_id, FUN = function(x) sum(x, na.rm = TRUE))
+  df$observed <- ifelse(obs_sum > 0, df$observed / obs_sum, NA_real_)
+
+  #-----------------------------
+  # optional aggregate over gears
+  #-----------------------------
+  if (!by_gear) {
+    gear_wt_all <- fit$tmb_data$catch_wt
+    names(gear_wt_all) <- fit$tmb_data$gear_names
+
+    gear_wt <- gear_wt_all[gear_sel]
+    gear_wt <- gear_wt / sum(gear_wt)
+
+    df$w <- gear_wt[as.character(df$gear)]
+    df$observed <- df$observed * df$w
+    df$fitted   <- df$fitted * df$w
+
+    df <- stats::aggregate(
+      cbind(observed, fitted) ~ len + year,
+      data = df,
+      FUN = sum,
+      na.rm = TRUE
+    )
+  }
+
+  #-----------------------------
+  # x-axis breaks
+  #-----------------------------
+  lens_all <- sort(unique(df$len))
+  x_breaks <- lens_all
+  if (!is.null(len_by) && length(lens_all) > 1) {
+    x_breaks <- lens_all[seq(1, length(lens_all), by = len_by)]
+  }
+
+  #-----------------------------
+  # default title
+  #-----------------------------
+  if (is.null(title)) {
+    title <- "Observed and fitted length compositions"
+  }
+
+  #-----------------------------
+  # plot
+  #-----------------------------
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = len)) +
     ggplot2::geom_col(
-      data = df_obs,
-      ggplot2::aes(x = length, y = proportion),
-      width = binwidth,
+      ggplot2::aes(y = observed),
       fill = observed_fill,
       colour = observed_colour
     ) +
     ggplot2::geom_line(
-      data = df_fit,
-      ggplot2::aes(x = length, y = proportion),
+      ggplot2::aes(y = fitted, group = 1),
       colour = fitted_colour,
       linewidth = fitted_linewidth
     ) +
-    ggplot2::facet_wrap(~ gear, ncol = 1, scales = "free_y") +
     ggplot2::scale_x_continuous(breaks = x_breaks) +
     ggplot2::labs(
       x = "Length",
-      y = "Proportion at length",
+      y = "Proportion",
       title = title
     ) +
-    ggplot2::theme_bw()
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      panel.grid.minor = ggplot2::element_blank(),
+      strip.background = ggplot2::element_rect(fill = "grey90"),
+      plot.title = ggplot2::element_text(hjust = 0.5)
+    )
+
+  if (by_gear) {
+    p <- p + ggplot2::facet_grid(year ~ gear, scales = "free_y")
+  } else {
+    p <- p + ggplot2::facet_wrap(~ year, scales = "free_y")
+  }
+
+  return(p)
 }
+
+
+
+#' Plot annual LBIspr trajectories by gear
+#'
+#' Plots annual \code{LBIspr} ratios by gear, with the option to also show
+#' annual \code{SPR/SPRtarget} in an additional panel. A horizontal reference
+#' line at 1 indicates the target level.
+#'
+#' @param fit A fitted \code{"flicc_tmb_fit"} object.
+#' @param gear Optional character vector of gear names to include. Defaults to
+#'   \code{NULL}, meaning all available gears are plotted.
+#' @param spr Numeric SPR target percentage used in \code{LBIspr}, default
+#'   \code{40}.
+#' @param thresh Numeric cumulative threshold used inside \code{LBIspr},
+#'   default \code{0.8}.
+#' @param nyears Integer number of years used in the \code{LBIspr}
+#'   calculation, default \code{1}.
+#' @param plot.spr Logical. If \code{TRUE}, an additional panel is added for
+#'   annual \code{SPR / (spr/100)}.
+#' @param smoother Logical. If \code{TRUE}, adds a loess smoother to each
+#'   panel.
+#' @param scale_sel Logical passed to \code{LBIspr()}.
+#' @param facets Logical. If \code{TRUE}, facet by series name. If
+#'   \code{FALSE}, plot all series in a single panel.
+#' @param year_angle Numeric angle for year labels on the x-axis, default
+#'   \code{90}.
+#' @param line_width Numeric line width for the annual series.
+#' @param smooth_width Numeric line width for the smoother.
+#' @param colours Optional named character vector of colours. If \code{NULL},
+#'   colours are assigned automatically using the same generic palette logic as
+#'   \code{plot_lfd()}.
+#' @param year_break Integer spacing between x-axis year labels.
+#' @param point_pch Plotting symbol for annual observations.
+#' @param point_size Point size for annual observations.
+#'
+#' @return A \code{ggplot2} object.
+#'
+#' @examples
+#' \dontrun{
+#' plot_LBIspr(fit, smoother = FALSE)
+#' plot_LBIspr(fit, smoother = TRUE)
+#' plot_LBIspr(fit, plot.spr = TRUE, facets = TRUE)
+#' }
+#'
+#' @export
+plot_LBIspr <- function(fit, gear = NULL, spr = 40, thresh = 0.8,
+                        nyears = 1, plot.spr = TRUE,
+                        smoother = TRUE, scale_sel = TRUE,
+                        facets = TRUE, year_angle = 90,
+                        line_width = 0.8, smooth_width = 1.1,
+                        colours = NULL, year_break = 2,
+                        point_pch = 15, point_size = 1.8) {
+
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    stop("Package 'ggplot2' is required.")
+  }
+
+  idx <- LBIspr(
+    fit,
+    gear = gear,
+    spr = spr,
+    thresh = thresh,
+    nyears = nyears,
+    scale_sel = scale_sel
+  )
+
+  dfi <- as.data.frame(idx)
+  dfi <- dfi[dfi$slot %in% "index", -c(1:2), drop = FALSE]
+
+  dfi$year <- as.numeric(as.character(dfi$year))
+  dfi$cname <- as.character(dfi$cname)
+
+  if (isTRUE(plot.spr)) {
+    spry <- as.data.frame(fit$report$spr / (spr / 100))
+    spry$cname <- paste0("SPR/SPR", spr)
+    spry$year <- as.numeric(as.character(spry$year))
+    spry <- spry[, c("year", "data", "cname")]
+
+    dfi <- rbind(dfi[, c("year", "data", "cname")], spry)
+  } else {
+    dfi <- dfi[, c("year", "data", "cname")]
+  }
+
+  dfi$cname <- factor(dfi$cname, levels = unique(dfi$cname))
+  qlevels <- levels(dfi$cname)
+
+  if (is.null(colours)) {
+    base_cols <- c(
+      "#D55E00", "#0072B2", "#009E73", "#CC79A7",
+      "#E69F00", "#56B4E9", "#F0E442", "#999999"
+    )
+    colours <- stats::setNames(
+      rep(base_cols, length.out = length(qlevels)),
+      qlevels
+    )
+  } else {
+    if (is.null(names(colours))) {
+      stop("'colours' must be a named vector with names matching cname levels")
+    }
+    colours <- colours[qlevels]
+  }
+
+  yrs <- sort(unique(dfi$year))
+  yr_breaks <- seq(min(yrs), max(yrs), by = year_break)
+
+  p <- ggplot2::ggplot(
+    dfi,
+    ggplot2::aes(x = year, y = data, colour = cname, group = cname)
+  ) +
+    ggplot2::geom_hline(yintercept = 1, linetype = 2, linewidth = 0.5) +
+    ggplot2::scale_x_continuous(breaks = yr_breaks) +
+    ggplot2::scale_colour_manual(values = colours, drop = FALSE) +
+    ggplot2::labs(
+      x = "Year",
+      y = "LBI ratio",
+      colour = NULL
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      legend.title = ggplot2::element_blank(),
+      panel.grid.minor = ggplot2::element_blank(),
+      strip.background = ggplot2::element_rect(fill = "grey90"),
+      strip.text = ggplot2::element_text(face = "bold"),
+      axis.text.x = ggplot2::element_text(
+        angle = year_angle, vjust = 0.5, hjust = 1
+      ),
+      axis.title = ggplot2::element_text(face = "bold")
+    )
+
+  ymax <- max(dfi$data, 1.4, na.rm = TRUE)
+
+  p <- p + ggplot2::coord_cartesian(ylim = c(0, ymax))
+
+  if (isTRUE(smoother)) {
+    p <- p +
+      ggplot2::geom_smooth(
+        se = FALSE,
+        method = "loess",
+        formula = y ~ x,
+        linewidth = smooth_width,
+        alpha = 0.35
+      ) +
+      ggplot2::geom_point(size = point_size, pch = point_pch)
+  } else {
+    p <- p +
+      ggplot2::geom_line(linewidth = line_width, alpha = 0.95) +
+      ggplot2::geom_point(size = point_size, pch = point_pch)
+  }
+
+  if (isTRUE(facets)) {
+    p <- p + ggplot2::facet_wrap(~ cname, scales = "fixed")
+  }
+
+  p
+}
+
 
 #' Plot observed length-frequency data
 #'
@@ -252,9 +612,9 @@ plot_lfd <- function(lfd,
 
   lfd <- FLCore::iter(lfd, iter)
   if(type=="relmax")
-  lfd <- lapply(lfd, function(x){
-    x%/%apply(x,2:5,max)
-  })
+    lfd <- lapply(lfd, function(x){
+      x%/%apply(x,2:5,max)
+    })
   lfd <- as.data.frame(lfd)
 
   x_breaks <- seq(
@@ -304,3 +664,538 @@ plot_lfd <- function(lfd,
   p
 }
 
+
+##' Plot LBSPR-style equilibrium curves
+#'
+#' Plots equilibrium spawning potential ratio (SPR), relative spawning biomass
+#' (\code{SSB/SSB0}), and relative equilibrium yield against apical fishing
+#' mortality from an equilibrium \code{FLStockLen} object returned by
+#' \code{eqstklen()}.
+#'
+#' The plot is shown in a single LBSPR-style panel with coloured equilibrium
+#' curves, optional horizontal SPR reference lines, an optional vertical line
+#' at \code{Fspr}, and optional points showing the current stock state.
+#'
+#' Current stock state points are taken from \code{eqstk@refpts}, using:
+#' \itemize{
+#'   \item \code{Fcur} for the x-coordinate
+#'   \item \code{SPRcur} for the SPR curve
+#'   \item \code{Ycur} for the relative yield curve
+#'   \item \code{SSBcur} for the \code{SSB/SSB0} curve
+#' }
+#'
+#' Equilibrium curves are extracted from the \code{eqstk} object as:
+#' \itemize{
+#'   \item apical fishing mortality from \code{fapl(eqstk)}
+#'   \item SPR from \code{eqstk@stock}
+#'   \item equilibrium spawning biomass from \code{ssbl(eqstk)}
+#'   \item equilibrium yield from \code{eqstk@catch}
+#' }
+#'
+#' Relative spawning biomass is calculated as \code{SSB/SSB0}, where
+#' \code{SSB0} is taken as the maximum equilibrium spawning biomass across the
+#' fishing mortality sequence. Relative yield is calculated as equilibrium yield
+#' divided by the maximum equilibrium yield.
+#'
+#' Optionally, the x-axis can be trimmed to the last fishing mortality value
+#' where relative yield exceeds a small tolerance, plus a user-defined buffer.
+#' This helps focus the plot on the informative part of the equilibrium curve.
+#'
+#' @param eqstk An equilibrium \code{FLStockLen} object returned by
+#'   \code{eqstklen()}.
+#' @param reflines Numeric vector of SPR-style reference levels to draw as
+#'   horizontal dashed lines. Defaults to \code{c(0.4, 0.2, 0.1)}.
+#' @param refcols Character vector of colours for \code{reflines}. Defaults to
+#'   \code{c("darkgreen", "orange", "red")}.
+#' @param show_current Logical. If \code{TRUE}, add current-state reference
+#'   points from \code{eqstk@refpts}.
+#' @param show_legend Logical. If \code{TRUE}, show the legend for the
+#'   equilibrium curves.
+#' @param show_s Logical. If \code{TRUE}, annotate the plot with the steepness
+#'   value.
+#' @param s Optional Beverton-Holt steepness value to label. If \code{NULL},
+#'   the function first tries \code{attr(eqstk, "lhpar")["s"]}, then
+#'   \code{attr(eqstk, "steepness")}.
+#' @param xlab Character x-axis label. Defaults to \code{"Apical F"}.
+#' @param ylab Optional y-axis label. If \code{NULL}, defaults to
+#'   \code{"Proportion"}.
+#' @param title Optional plot title. If \code{NULL}, defaults to
+#'   \code{"Equilibrium curves"}.
+#' @param line_width Numeric line width for the equilibrium curves.
+#' @param point_size Numeric point size for current-state reference points.
+#' @param colours Optional named character vector giving colours for the three
+#'   curves. Names should match \code{c("SPR", "SSB/SSB0", "Relative Yield")}.
+#' @param trim_x Logical. If \code{TRUE}, trim the x-axis to the last fishing
+#'   mortality value where relative yield exceeds \code{yield_tol}, plus a
+#'   buffer.
+#' @param trim_buffer Numeric proportional buffer added to the trimmed upper
+#'   x-limit. The default \code{0.2} corresponds to 20\%.
+#' @param yield_tol Numeric tolerance used to determine where relative yield is
+#'   effectively zero when trimming the x-axis.
+#'
+#' @return A \code{ggplot2} object.
+#'
+#' @seealso \code{\link{eqstklen}}, \code{\link{prbrp_flicc}}
+#'
+#' @examples
+#' \dontrun{
+#' eqstk <- eqstklen(fit)
+#'
+#' plot_eqcurves(eqstk)
+#'
+#' plot_eqcurves(
+#'   eqstk,
+#'   reflines = c(0.5, 0.4, 0.2),
+#'   refcols = c("grey40", "darkgreen", "orange")
+#' )
+#'
+#' plot_eqcurves(
+#'   eqstk,
+#'   trim_x = TRUE,
+#'   trim_buffer = 0.15,
+#'   title = "Equilibrium SPR, biomass and yield"
+#' )
+#' }
+#'
+#' @export
+
+plot_eqcurves <- function(eqstk,
+                          reflines = c(0.4, 0.2, 0.1),
+                          refcols = c("darkgreen", "orange", "red"),
+                          show_current = TRUE,
+                          show_legend = TRUE,
+                          show_s = TRUE,
+                          s = NULL,
+                          xlab = "Apical F",
+                          ylab = NULL,
+                          title = NULL,
+                          line_width = 1.1,
+                          point_size = 3,
+                          colours = NULL,
+                          trim_x = TRUE,
+                          trim_buffer = 0.2,
+                          yield_tol = 1e-6) {
+
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    stop("Package 'ggplot2' is required.")
+  }
+
+  if (!methods::is(eqstk, "FLStockLen")) {
+    stop("'eqstk' must be an FLStockLen object returned by eqstklen().")
+  }
+
+  if (is.null(eqstk@refpts) || length(eqstk@refpts) == 0) {
+    stop("eqstk@refpts is empty. Current reference points are required.")
+  }
+
+  rp <- eqstk@refpts
+  rp_names <- dimnames(rp)[[1]]
+
+  get_rp <- function(x) {
+    if (!x %in% rp_names) return(NA_real_)
+    as.numeric(rp[x])
+  }
+
+  Fcur   <- get_rp("Fcur")
+  SPRcur <- get_rp("SPRcur")
+  Ycur   <- get_rp("Ycur")
+  SSBcur <- get_rp("SSBcur")
+  Fspr   <- get_rp("Fspr")
+
+  # equilibrium curves
+  Fap <- as.numeric(fapl(eqstk))
+  SPR <- as.numeric(eqstk@stock)
+  SSB <- as.numeric(ssbl(eqstk))
+  Y   <- as.numeric(eqstk@catch)
+
+  if (length(Fap) == 0 || length(SPR) == 0 || length(SSB) == 0 || length(Y) == 0) {
+    stop("eqstk does not contain the expected equilibrium quantities.")
+  }
+
+  SSB0 <- max(SSB, na.rm = TRUE)
+  Ymax <- max(Y, na.rm = TRUE)
+
+  plotdf <- rbind(
+    data.frame(
+      Fap = Fap,
+      value = SPR,
+      metric = "SPR"
+    ),
+    data.frame(
+      Fap = Fap,
+      value = SSB / SSB0,
+      metric = "SSB/SSB0"
+    ),
+    data.frame(
+      Fap = Fap,
+      value = Y / Ymax,
+      metric = "Relative Yield"
+    )
+  )
+
+  plotdf$metric <- factor(
+    plotdf$metric,
+    levels = c("SPR", "SSB/SSB0", "Relative Yield")
+  )
+
+  if (is.null(colours)) {
+    colours <- c(
+      "SPR" = "#F8766D",
+      "SSB/SSB0" = "#00BA38",
+      "Relative Yield" = "#619CFF"
+    )
+  }
+
+  if (is.null(title)) {
+    title <- "Equilibrium curves"
+  }
+
+  p <- ggplot2::ggplot(
+    plotdf,
+    ggplot2::aes(x = Fap, y = value, colour = metric)
+  ) +
+    ggplot2::geom_line(linewidth = line_width, show.legend = show_legend) +
+    ggplot2::scale_colour_manual(
+      values = colours,
+      labels = c("SPR", "SSB/SSB0", "Relative yield")
+    )+
+    ggplot2::labs(
+      x = xlab,
+      y = if (is.null(ylab)) "Proportion" else ylab,
+      title = title,
+      colour = NULL
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      panel.grid.minor = ggplot2::element_blank(),
+      legend.position = if (show_legend) "top" else "none",
+      legend.title = ggplot2::element_blank(),
+      plot.title = ggplot2::element_text(hjust = 0.5),
+      axis.title = ggplot2::element_text(face = "bold"),
+      strip.background = ggplot2::element_rect(fill = "grey95"),
+      strip.text = ggplot2::element_text(face = "bold")
+    )
+
+  # SPR reference lines only in SPR panel
+  if (length(reflines) > 0) {
+    refdf <- data.frame(
+      metric = "SPR",
+      yint = reflines,
+      col = rep_len(refcols, length(reflines))
+    )
+
+    p <- p +
+      ggplot2::geom_hline(
+        data = refdf,
+        ggplot2::aes(yintercept = yint),
+        colour = refdf$col,
+        linetype = 2,
+        linewidth = 0.7,
+        inherit.aes = FALSE
+      )
+  }
+
+  # optional Fspr vertical line in all panels
+  if (is.finite(Fspr)) {
+    p <- p +
+      ggplot2::geom_vline(
+        xintercept = Fspr,
+        linetype = 2,
+        colour = "grey40",
+        linewidth = 0.6
+      )
+  }
+
+  if (isTRUE(show_current)) {
+    curdf <- rbind(
+      data.frame(Fap = Fcur, value = SPRcur, metric = "SPR"),
+      data.frame(Fap = Fcur, value = SSBcur, metric = "SSB/SSB0"),
+      data.frame(Fap = Fcur, value = Ycur, metric = "Relative Yield")
+    )
+
+    curdf <- curdf[is.finite(curdf$Fap) & is.finite(curdf$value), , drop = FALSE]
+
+    if (nrow(curdf) > 0) {
+      curdf$metric <- factor(curdf$metric, levels = levels(plotdf$metric))
+
+      p <- p +
+        ggplot2::geom_point(
+          data = curdf,
+          ggplot2::aes(x = Fap, y = value),
+          inherit.aes = FALSE,
+          size = point_size,
+          colour = "black"
+        )
+    }
+  }
+
+  if (is.null(s) && !is.null(attr(eqstk, "lhpar"))) {
+    lh <- attr(eqstk, "lhpar")
+    if ("s" %in% rownames(lh)) {
+      s <- as.numeric(lh["s"])
+    }
+  }
+
+  if (is.null(s)) {
+    s <- attr(eqstk, "steepness")
+  }
+
+  if (isTRUE(show_s) && !is.null(s) && is.finite(s)) {
+    sprdf <- plotdf[plotdf$metric == "SPR", , drop = FALSE]
+    xmax <- max(sprdf$Fap, na.rm = TRUE)
+    ymax <- max(sprdf$value, na.rm = TRUE)
+
+
+
+    if (isTRUE(trim_x)) {
+      Y <- as.numeric(eqstk@catch)
+      Fap <- as.numeric(fapl(eqstk))
+      Yrel <- Y / max(Y, na.rm = TRUE)
+
+      keep <- which(Yrel > yield_tol)
+
+      if (length(keep) > 0) {
+        xmax <- max(Fap[keep], na.rm = TRUE) * (1 + trim_buffer)
+
+        if (isTRUE(show_current) && is.finite(Fcur)) {
+          xmax <- max(xmax, Fcur * 1.05, na.rm = TRUE)
+        }
+
+        xmax <- min(xmax, max(Fap, na.rm = TRUE))
+
+        p <- p + ggplot2::coord_cartesian(xlim = c(0, xmax))
+      }
+    }
+    p <- p +
+      ggplot2::annotate(
+        "text",
+        x = xmax,
+        y = ymax,
+        label = paste0("s = ", format(round(s, 2), nsmall = 2)),
+        hjust = 1.02,
+        vjust = -0.3,
+        size = 4
+      )
+  }
+  p <- p +
+    ggplot2::theme(
+      legend.position = "bottom",
+      legend.direction = "horizontal",
+      legend.box = "horizontal",
+      legend.text = ggplot2::element_text(size = 11),
+      legend.key.width = grid::unit(1.5, "cm")
+    )
+
+  p
+}
+
+
+#' Plot FAO-style stock status from SPR relative to target
+#'
+#' Plots annual spawning potential ratio relative to a target SPR level,
+#' \code{SPR / SPRtarget}, from a fitted \code{flicc_tmb_fit} object using
+#' \code{ggplot2}. The background is shaded using FAO-style stock status bands.
+#'
+#' By default, the status zones are:
+#' \itemize{
+#'   \item \code{0.0 - 0.8}: overfished
+#'   \item \code{0.8 - 1.2}: sustainably fished
+#'   \item \code{> 1.2}: underfished
+#' }
+#'
+#' The two upper zones are shown with the same blue fill and separated by a
+#' white dashed line, following the intended FAO/SOSI visual style.
+#'
+#' @param fit A fitted \code{flicc_tmb_fit} object.
+#' @param spr.tgt Numeric SPR target in percent. Default is \code{40}, so the
+#'   plotted quantity is \code{SPR / 0.4}.
+#' @param title Optional plot title. Defaults to \code{"FAO Status"}.
+#' @param line_colour Colour of the time-series line.
+#' @param point_colour Colour of the annual points.
+#' @param linewidth Line width for the time-series line.
+#' @param point_size Point size for the annual observations.
+#' @param side_alpha Transparency of the side status bar.
+#' @param ymax Optional upper y-axis limit. If \code{NULL}, this is set to the
+#'   maximum of the scaled SPR series and \code{1.5}.
+#' @param overfished_col Fill colour for the overfished zone.
+#' @param sustainable_col Fill colour for the sustainable and underfished
+#'   zones.
+#' @param band_alpha Transparency of the background status bands.
+#' @param separator_colour Colour of the dashed separator lines between FAO
+#'   status zones.
+#' @param separator_linetype Line type for the dashed separator lines.
+#' @param separator_linewidth Line width for the dashed separator lines.
+#' @param y_breaks Numeric vector of y-axis breaks.
+#'
+#' @return A \code{ggplot} object.
+#' @export
+plot_lbfao <- function(fit,
+                       spr.tgt = 40,
+                       title = "FAO Status",
+                       line_colour = "black",
+                       point_colour = "black",
+                       linewidth = 0.6,
+                       point_size = 3,
+                       side_alpha = 0.18,
+                       ymax = NULL,
+                       overfished_col = "orange",
+                       sustainable_col = "dodgerblue3",
+                       band_alpha = 0.8,
+                       separator_colour = "white",
+                       separator_linetype = 3,
+                       separator_linewidth = 0.7,
+                       y_breaks = seq(0, 10, 0.2)) {
+
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    stop("Package 'ggplot2' is required.")
+  }
+
+  if (is.null(fit$report$spr)) {
+    stop("fit$report$spr not found.")
+  }
+
+  df <- as.data.frame(fit$report$spr)
+
+  if (!all(c("year", "data") %in% names(df))) {
+    stop("Could not coerce fit$report$spr to a data.frame with columns 'year' and 'data'.")
+  }
+
+  df <- df[!is.na(df$data), , drop = FALSE]
+  df$year_num <- as.numeric(as.character(df$year))
+  df$status_ratio <- df$data / (spr.tgt / 100)
+
+  if (nrow(df) == 0) {
+    stop("No non-missing SPR values found in fit$report$spr.")
+  }
+
+  if (is.null(ymax)) {
+    ymax <- max(df$status_ratio, 1.5, na.rm = TRUE)
+  }
+
+  xmin <- min(df$year_num, na.rm = TRUE) - 0.5
+  xmax <- max(df$year_num, na.rm = TRUE) + 0.5
+
+  band_df <- data.frame(
+    xmin = c(xmin, xmin, xmin),
+    xmax = c(xmax, xmax, xmax),
+    ymin = c(0, 0.8, 1.2),
+    ymax = c(0.8, 1.2, ymax),
+    fill = factor(
+      c("overfished", "sustainable", "underfished"),
+      levels = c("overfished", "sustainable", "underfished", "unsustainable")
+    )
+  )
+
+  status_cut <- 0.8
+  bar_xmin <- xmax + 0.15
+  bar_xmax <- xmax + 0.50
+
+  status_bar <- data.frame(
+    xmin = c(bar_xmin, bar_xmin),
+    xmax = c(bar_xmax, bar_xmax),
+    ymin = c(0, status_cut),
+    ymax = c(status_cut, ymax),
+    fill = factor(
+      c("unsustainable", "sustainable"),
+      levels = c("overfished", "sustainable", "underfished", "unsustainable")
+    )
+  )
+
+  fill_vals <- c(
+    overfished = overfished_col,
+    sustainable = sustainable_col,
+    underfished = sustainable_col,
+    unsustainable = overfished_col
+  )
+
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = year_num, y = status_ratio)) +
+    ggplot2::geom_rect(
+      data = band_df,
+      ggplot2::aes(
+        xmin = xmin, xmax = xmax,
+        ymin = ymin, ymax = ymax,
+        fill = fill
+      ),
+      inherit.aes = FALSE,
+      alpha = band_alpha,
+      colour = NA
+    ) +
+    ggplot2::geom_rect(
+      data = status_bar,
+      ggplot2::aes(
+        xmin = xmin, xmax = xmax,
+        ymin = ymin, ymax = ymax,
+        fill = fill
+      ),
+      inherit.aes = FALSE,
+      alpha = side_alpha,
+      colour = NA
+    ) +
+    ggplot2::scale_fill_manual(
+      values = fill_vals,
+      guide = "none"
+    ) +
+    ggplot2::geom_hline(
+      yintercept = 1.2,
+      colour = separator_colour,
+      linetype = separator_linetype,
+      linewidth = separator_linewidth
+    ) +
+    ggplot2::geom_line(
+      colour = line_colour,
+      linewidth = linewidth
+    ) +
+    ggplot2::geom_point(
+      shape = 21,
+      fill = "white",
+      colour = point_colour,
+      size = point_size,
+      stroke = 0.6
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = (bar_xmin + bar_xmax) / 2,
+      y = status_cut / 2,
+      label = "UNSUSTAINABLE",
+      angle = 90,
+      size = 3,
+      fontface = "bold",
+      colour = "grey30"
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = (bar_xmin + bar_xmax) / 2,
+      y = status_cut + (ymax - status_cut) / 2,
+      label = "SUSTAINABLE",
+      angle = 90,
+      size = 3,
+      fontface = "bold",
+      colour = "grey30"
+    ) +
+    ggplot2::scale_x_continuous(
+      breaks = df$year_num,
+      expand = c(0, 0)
+    ) +
+    ggplot2::scale_y_continuous(
+      breaks = y_breaks
+    ) +
+    ggplot2::coord_cartesian(
+      xlim = c(xmin, bar_xmax + 0.25),
+      ylim = c(0, ymax),
+      expand = FALSE,
+      clip = "off"
+    ) +
+    ggplot2::labs(
+      x = "Year",
+      y = paste0("SPR / SPR", spr.tgt),
+      title = title
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      panel.grid.minor = ggplot2::element_blank(),
+      plot.title = ggplot2::element_text(hjust = 0.5),
+      plot.margin = ggplot2::margin(5.5, 35, 5.5, 5.5)
+    )
+
+  p
+}
