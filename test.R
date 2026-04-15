@@ -3,6 +3,7 @@ library(FLicc)
 
 data("alfonsino")
 
+# Specify Life History
 lhpar <- FLPar(
   linf = 55.7,
   k    = 0.08,
@@ -12,17 +13,20 @@ lhpar <- FLPar(
   b    = 3.146168
 )
 
+# LFD observations
 lfd<- lfd_alfonsino
+lot_lfd(lfd,type="relmax")
+
+# Build FLStockLen input
 stklen <- stocklen(lfd,lhpar)
 
-plot_lfd(lfd,type="relmax")
-
-fit <- fiticc(lfd_alfonsino,stklen_alfonsino,sel_fun=c("dsnormal","logistic"),catch_by_gear = c(0.7,0.3))
+# Fit model
+fit <- fiticc(lfd, stklen_alfonsino,sel_fun=c("dsnormal","logistic"),catch_by_gear = c(0.7,0.3))
 
 # Option to create FLStockLen
 stkl <- flicc_stklen(fit,stklen_alfonsino)
 
-# Plotting
+# Plotting observed vs predicted
 plot_len(fit)
 plot_len(fit,by_gear = T,year=2020:2024)
 # Status
