@@ -26,9 +26,13 @@ Install the development version from GitHub:
 
 ```r
 # install.packages("remotes")
-remotes::install_github("YOUR-USER/FLicc")
+remotes::install_github("henning-winker/FLicc")
 ```
+## Worked example
 
+See the full worked example here:
+
+[FLicc workflow vignette](https://henning-winker.github.io/FLicc/FLicc_vignette_commented.html)
 ---
 
 ## Multi-gear focus
