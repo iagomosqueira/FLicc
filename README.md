@@ -59,16 +59,19 @@ where \(F_j\) is the apical fishing mortality for gear \(j\), \(sel_{ijk}\) is t
 `FLicc` currently supports simple parametric selectivity functions that can also be combined into mixtures:
 
 **Logistic**
+
 $$
 sel_i = \frac{1}{1 + \exp(-S_s(L_i - S_m))}
 $$
 
 **Normal**
+
 $$
 sel_i = \exp\{-S_s(L_i - S_m)^2\}
 $$
 
 **Double-sided normal**
+
 $$
 sel_i =
 \begin{cases}
