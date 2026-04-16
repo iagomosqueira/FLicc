@@ -26,29 +26,29 @@ The model assumes an approximate steady state and tracks survival through sequen
 
 Catch in length interval \(i\) is given by:
 
-\[
+$$
 c_i = \frac{F_i}{Z_i}(S_i - S_{i+1})
-\]
+$$
 
 where \(S_i\) is survival to the lower bound of interval \(i\), \(F_i\) is fishing mortality at length, and \(Z_i = M_i + F_i\) is total mortality at length. For gear \(j\), catch per recruit is:
 
-\[
+$$
 C_j = \sum_{i=1}^{N} \frac{F_{ij}}{Z_i}(S_i - S_{i+1})
-\]
+$$
 
 and the relative catch share of gear \(j\) is:
 
-\[
+$$
 p_j = \frac{C_j}{\sum_{g=1}^{G} C_g}
-\]
+$$
 
 so the relative catches provide information on the relative fishing pressure exerted by each gear. 
 
 Total mortality at length is modeled as the sum of natural mortality and fishing mortality across gears:
 
-\[
+$$
 Z_i = M_i + \sum_j F_j \sum_k w_k \, sel_{ijk}
-\]
+$$
 
 where \(F_j\) is the apical fishing mortality for gear \(j\), \(sel_{ijk}\) is the selectivity component at length for gear \(j\), and \(w_k\) are mixture weights when multiple selectivity components are used. This is the key decomposition that allows `FLicc` to separate gear impact from information on stock size structure. :contentReference[oaicite:6]{index=6}
 
@@ -59,23 +59,23 @@ where \(F_j\) is the apical fishing mortality for gear \(j\), \(sel_{ijk}\) is t
 `FLicc` currently supports simple parametric selectivity functions that can also be combined into mixtures:
 
 **Logistic**
-\[
+$$
 sel_i = \frac{1}{1 + \exp(-S_s(L_i - S_m))}
-\]
+$$
 
 **Normal**
-\[
+$$
 sel_i = \exp\{-S_s(L_i - S_m)^2\}
-\]
+$$
 
 **Double-sided normal**
-\[
+$$
 sel_i =
 \begin{cases}
 \exp\{-S_{s1}(L_i - S_m)^2\}, & L_i < S_m \\
 \exp\{-S_{s2}(L_i - S_m)^2\}, & L_i > S_m
 \end{cases}
-\]
+$$
 
 These functions correspond roughly to asymptotic, symmetric dome-shaped, and flexible dome-shaped patterns. The ability to fit dome-shaped selectivity is especially important in gillnet and mixed-gear fisheries, where assuming logistic selectivity alone can bias SPR estimates. Medley’s simulations showed much poorer performance when dome-shaped selectivity was mis-specified as logistic. 
 
@@ -131,9 +131,9 @@ A second area of extension in `FLicc` is the development of length-based indicat
 
 The idea behind `LBIspr` is to compare the observed proportion of “large” fish to the proportion expected under a target SPR level, in close analogy to age-based indicators defined relative to \(F_{MSY}\). Griffiths et al. defined the age-based indicator \(ABI_{MSY}\) as:
 
-\[
+$$
 ABI_{MSY,t} = \frac{P_t}{P_{MSY}}
-\]
+$$
 
 where \(P_t\) is the proportion of fish above a reference age in year \(t\), and \(P_{MSY}\) is the corresponding equilibrium proportion above that threshold under \(F_{MSY}\). Their results showed that \(ABI_{MSY}\) tracked exploitation pressure, was negatively related to \(F/F_{MSY}\), and had useful classification skill relative to \(B/B_{MSY}\). 
 
@@ -145,9 +145,9 @@ where \(P_t\) is the proportion of fish above a reference age in year \(t\), and
 
 Then a simple length-based index can be written as:
 
-\[
+$$
 LBI_{SPRx,t} = \frac{P_t(L \ge L_{SPRx})}{P_{SPRx}}
-\]
+$$
 
 Values below 1 indicate fewer large fish than expected under the target structure; values above 1 indicate more. This gives an interpretable structure-based indicator that can be tracked through time and related to both exploitation and target SPR conditions.
 
@@ -157,9 +157,9 @@ This idea builds directly on the equilibrium-reference concept of \(ABI_{MSY}\):
 
 It also connects to earlier conceptual work by Goodyear, who proposed NZ50 as a way to monitor the frequency of large individuals in catches. NZ50 is the smallest sample size required for a fish at or above a threshold size to appear in 50% of random samples. He showed that:
 
-\[
+$$
 NZ50 = \frac{\log(0.5)}{\log(p)}
-\]
+$$
 
 where \(p\) is the cumulative probability at the threshold. Goodyear argued that such threshold-based metrics can track the relative abundance of large fish, are independent of the overall shape of the catch-length distribution, and are sensitive to changes in fishing mortality when catch removes multiple ages in long-lived species. He also suggested that explicit treatment of the largest fish in the catch would be a useful adjunct to standard reference points such as \(B/B_{MSY}\) and \(F/F_{MSY}\). 
 
