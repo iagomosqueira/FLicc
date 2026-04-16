@@ -20,6 +20,29 @@ In practice, combining gears can help separate mortality from selectivity, impro
 
 ---
 
+## Why multi-gear fitting helps
+
+A central advantage of `FLicc` is that multi-gear data can inform different parts of the inference problem at the same time.
+
+If only one gear is fit, the observed descending limb of the catch-at-length distribution can reflect both:
+1. real population depletion with size, and
+2. the descending side of selectivity.
+
+
+Estimation of fishing mortality from a single catch-at-age or length composition can be weakly identified when selectivity is dome-shaped. In such cases, the descending limb of the observed distribution reflects a combination of total mortality and declining selectivity at older ages or larger sizes. This induces confounding between fishing mortality and selectivity, such that different combinations of these processes can produce similar observed patterns.
+
+In a multi-gear setting, each fleet samples the population through a distinct selectivity pattern. When these patterns differ in their coverage of the size or age range—particularly when at least one gear provides information on larger or older individuals—the combined data help disentangle selectivity from mortality.
+
+The key mechanisms are:
+
+- **Contrast in selectivity shapes**: Differences in ascending and descending limbs across gears provide independent information on population structure.
+- **Coverage of large individuals**: Gears that retain larger fish reduce ambiguity associated with the descending limb of dome-shaped selectivity.
+- **Shared population dynamics**: All gears observe the same underlying population, imposing consistency across inferred mortality processes.
+
+As a result, the joint likelihood across gears constrains the solution space, reducing the risk of spurious selectivity patterns and improving the robustness of fishing mortality estimates.
+
+---
+
 ## Core model idea
 
 The model assumes an approximate steady state and tracks survival through sequential length intervals under growth and mortality. In the underlying framework, survival to length interval \(n\) is computed across intervals and integrated over variability in asymptotic length \(L_\infty\), allowing growth variability to be carried into the expected length composition. Numerical integration is then used to obtain relative abundance-at-length. :contentReference[oaicite:4]{index=4}
@@ -53,6 +76,74 @@ $$
 where \(F_j\) is the apical fishing mortality for gear \(j\), \(sel_{ijk}\) is the selectivity component at length for gear \(j\), and \(w_k\) are mixture weights when multiple selectivity components are used. This is the key decomposition that allows `FLicc` to separate gear impact from information on stock size structure. :contentReference[oaicite:6]{index=6}
 
 ---
+
+## Natural mortality at length
+
+`FLicc` supports alternative formulations for natural mortality as a function of length, \(M(l)\), allowing users to explore different assumptions about size-dependent mortality.
+
+Let \(M_{ref}\) be natural mortality at a reference length \(l_{ref}\). The following options are supported:
+
+---
+
+**Constant mortality**
+
+Natural mortality is assumed to be constant across all lengths:
+
+$$
+M(l) = M_{ref}
+$$
+
+---
+
+**Inverse length scaling**
+
+Natural mortality declines inversely with length:
+
+$$
+M(l) = M_{ref} \left(\frac{l_{ref}}{l}\right)
+$$
+
+This simple formulation captures the general expectation that smaller individuals experience higher mortality.
+
+---
+
+**Lorenzen (2000)**
+
+Natural mortality scales with body weight \(W(l)\), typically approximated from a length–weight relationship:
+
+$$
+M(l) = M_{ref} \left(\frac{W(l)}{W(l_{ref})}\right)^{-0.288}
+$$
+
+where:
+
+$$
+W(l) = a l^b
+$$
+
+This formulation implies a smooth decline in mortality with increasing size and is widely used in length-based and ecosystem models.
+
+---
+
+**Gislason et al. (2010)**
+
+Natural mortality is modelled as a function of length and asymptotic length \(L_\infty\):
+
+$$
+\log M(l) = -0.55 - 1.61 \log l + 1.44 \log L_\infty + \log k
+$$
+
+
+
+where \(l\) is length, \(L_\infty\) is asymptotic length, and \(k\) is the von Bertalanffy growth coefficient.
+
+This formulation captures empirical scaling relationships across species and implies that natural mortality decreases with size but increases with growth rate and maximum size.
+
+
+---
+
+These alternative formulations allow sensitivity analyses to assumptions about size-dependent mortality, which can influence estimates of selectivity, SPR, and equilibrium reference points.
+
 
 ## Selectivity
 
@@ -102,28 +193,25 @@ In this sense, `FLicc` keeps the equilibrium interpretation of the original mode
 
 ## What is new relative to fishblicc?
 
-Relative to the original `fishblicc` implementation in Stan, `FLicc` adds several practical and methodological extensions:
+Relative to the original `fishblicc` implementation in Stan, `FLicc` introduces several key practical and methodological extensions:
 
-- **TMB estimation** for much faster fitting and easier use in sensitivity analyses and simulation workflows. The original `fishblicc` was implemented in `rstan`; `FLicc` replaces this with a TMB-based MPD workflow within FLR. 
-- **FLR integration**, so inputs, outputs and derived quantities can be handled as `FLQuant`, `FLQuants`, `FLPar` and `FLStockLen`-style objects. :contentReference[oaicite:11]{index=11}
-- **Multiple-year fitting**, so recent years can be fit jointly rather than only year-by-year.
-- **Structured variation in fishing mortality**, including random-walk style developments across years, while estimating common parameters such as life-history and selectivity.
-- **Equilibrium model functions**, including equilibrium stock objects, SPR curves, relative biomass curves, and yield curves for diagnostics and reference point exploration. 
+- **Multi-year estimation framework with TMB**  
+  The model is implemented in Template Model Builder (TMB), enabling efficient joint estimation across multiple years. This allows the model to scale to larger datasets and more complex structures while retaining fast optimization and access to automatic differentiation for uncertainty estimation. Joint fitting across years improves parameter identifiability by leveraging temporal replication in the data.
 
-These changes make `FLicc` more suitable for iterative assessment workflows, diagnostics, FLR pipelines, and management-oriented scenario analysis.
+- **Structured variation in fishing mortality**  
+  Annual fishing mortality is modelled as a log-scale random walk:
+  
+  \[
+  \log F_y = \log F_{y-1} + \epsilon_y, \quad \epsilon_y \sim \mathcal{N}(0, \sigma_F^2)
+  \]
+  
+  This introduces temporal structure that stabilises estimation when fitting multiple years jointly, allowing fishing mortality to evolve smoothly while still capturing interannual variability. It also facilitates the estimation of life-history and selectivity parameters by borrowing strength across years.
 
----
+- **Improved inference through multi-gear data integration**  
+  When multiple gears are included, the model exploits differences in selectivity patterns to better resolve fishing mortality and selectivity. In particular, gears that sample different parts of the size or age range—especially those retaining larger individuals—help reduce confounding between mortality and selectivity, improving robustness of parameter estimates.
 
-## Why multi-gear fitting helps
-
-A central advantage of `FLicc` is that multi-gear data can inform different parts of the inference problem at the same time.
-
-If only one gear is fit, the observed descending limb of the catch-at-length distribution can reflect both:
-1. real population depletion with size, and
-2. the descending side of selectivity.
-
-That creates aliasing, especially under dome-shaped selectivity. By fitting multiple gears jointly, relative catches constrain gear-specific fishing pressure, while contrasting length distributions help identify which features are due to shared population structure and which are due to gear-specific selectivity. This was one of the original motivations for the multi-gear framework and remains one of the strongest reasons to use `FLicc` instead of simpler single-gear methods. 
-
+- **Equilibrium model functions**  
+  The package provides equilibrium-based diagnostics and reference point tools, including SPR curves, relative biomass curves, and yield curves. These enable direct integration into management workflows, support scenario testing, and facilitate compatibility with FLR-based pipelines.
 ---
 
 ## Length-based indicators: from large fish to stock structure
@@ -173,6 +261,58 @@ In that sense, `LBIspr` sits naturally between these two lines of work:
 
 ---
 
+
+## Installation
+
+`FLicc` depends on `FLCore`, `ggplotFL`, and `TMB`. The FLR packages are available from the FLR r-universe repository, while `TMB` is installed from CRAN. On Windows, installing `TMB` from source requires Rtools.
+
+### 1. Install FLR dependencies
+
+```r
+install.packages(
+  c("FLCore", "ggplotFL"),
+  repos = c("https://flr.r-universe.dev", "https://cloud.r-project.org")
+)
+```
+
+### 2. Install required packages
+
+```r
+install.packages("devtools")
+install.packages("TMB", type = "source")
+```
+
+`TMB` is the estimation engine used by `FLicc`. Installing from source ensures compatibility when compiling models and linking against the local toolchain.
+
+### 3. Windows only: install Rtools (if not already installed)
+
+On Windows, `TMB` requires Rtools. You can install it directly from R:
+
+```r
+install.packages("pkgbuild")
+pkgbuild::install_build_tools()
+```
+
+Alternatively, install manually from CRAN:
+
+```r
+browseURL("https://cran.r-project.org/bin/windows/Rtools/")
+```
+
+After installation, restart R before proceeding.
+
+### 4. Install FLicc
+
+```r
+devtools::install_github("henning-winker/FLicc")
+```
+
+### 5. Load the package
+
+```r
+library(FLicc)
+```
+
 ## Typical workflow
 
 A standard `FLicc` analysis consists of:
@@ -186,18 +326,6 @@ A standard `FLicc` analysis consists of:
 
 ---
 
-
-
-## Future developments
-
-Future developments could include:
-
-- exploring random effects on selectivity parameters, for example to allow selected gear-specific selectivity parameters to vary among years while estimating shared mean patterns,
-- isopleth plots for visualising equilibrium trade-offs among fishing mortality, SPR, biomass and yield,
-- additional selectivity options and diagnostics,
-- further expansion of equilibrium and indicator-based reference point tools.
-
----
 
 
 ## Short workflow example
@@ -250,6 +378,20 @@ plot_LBIspr(fit, thresh = 0.7)
 eqstk <- eqstklen(fit, s = 0.75)
 plot_eqcurves(eqstk)
 ```
+
+
+
+
+## Future developments
+
+Future developments could include:
+
+- exploring random effects on selectivity parameters, for example to allow selected gear-specific selectivity parameters to vary among years while estimating shared mean patterns,
+- isopleth plots for visualising equilibrium trade-offs among fishing mortality, SPR, biomass and yield,
+- additional selectivity options and diagnostics,
+- further expansion of equilibrium and indicator-based reference point tools.
+
+---
 
 ## References
 
