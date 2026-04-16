@@ -15,7 +15,7 @@ lhpar <- FLPar(
 
 # LFD observations
 lfd<- lfd_alfonsino
-lot_lfd(lfd,type="relmax")
+plot_lfd(lfd,type="relmax")
 
 # Build FLStockLen input
 stklen <- stocklen(lfd,lhpar)
@@ -33,7 +33,7 @@ plot_len(fit,by_gear = T,year=2020:2024)
 plot_spr(fit)
 plot_lbfao(fit)
 # LBIspr
-plot_LBIspr(fit,thresh = 0.7)
+plot_LBIspr(fit,thresh = 0.75)
 
 # Equilibrium dynamics
 eqstk <- eqstklen(fit,s=0.75)

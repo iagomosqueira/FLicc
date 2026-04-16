@@ -11,13 +11,13 @@
 #' @param fit fitted flicc_tmb_fit object
 #' @param gear optional character vector of gears to include; defaults to all
 #' @param spr target SPR percentage, default 40
-#' @param thresh cumulative threshold used to define Lref, default 0.9
+#' @param thresh cumulative threshold used to define Lref, default 0.75
 #' @param nyears number of terminal years to average
 #' @param scale_sel logical; passed to nf_flicc
 #'
 #' @return *FLIndices* with *FLIndexBiomass*
 #' @export
-LBIspr<- function(fit, gear = NULL, spr = 40, thresh = 0.8,
+LBIspr<- function(fit, gear = NULL, spr = 40, thresh = 0.75,
                          nyears = 1, scale_sel = TRUE) {
 
 

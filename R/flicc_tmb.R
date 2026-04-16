@@ -176,6 +176,7 @@ data_tmb_flicc <- function(lfd, stklen, sel_fun, catch_by_gear,
     year_names  = years
   )
 }
+
 #' Generate initial parameter values for FLicc TMB fits
 #'
 #' Builds a named parameter list suitable for \code{TMB::MakeADFun()} from a
@@ -274,26 +275,63 @@ init_tmb_flicc <- function(tmb_data) {
     log_sigmaF = tmb_data$prior_sigmaF_mean
   )
 }
-#' Fit the FLicc TMB model
+
+#' Fit the FLicc model in a single optimizer pass
 #'
-#' Compiles, loads, and fits the FLicc TMB objective function to a single
-#' equilibrium multi-gear length dataset.
+#' Internal fitting engine for FLicc. This function performs one model fit only
+#' and does not apply any automatic retry or stability refit logic.
 #'
-#' @param dl A named input list defining the FLicc model data and settings.
-#' @param compile Logical. If \code{TRUE}, the C++ template is recompiled before
-#'   fitting. Default is \code{FALSE}.
-#' @param silent Logical. Passed to \code{TMB::MakeADFun()}. Default is
-#'   \code{TRUE}.
-#' @param dll Character string giving the base name of the TMB dynamic library.
-#'   Default is \code{"FLicc"}.
-#' @param sel_fixed Optional named list of fixed selectivity values passed to
-#'   \code{apply_sel_fixed_flicc()}.
+#' @param lfd A named list of \code{FLQuant} objects containing observed
+#'   length-frequency distributions by gear.
+#' @param stklen An \code{FLStockLen} object, or compatible FLR object,
+#'   containing stock and life-history information.
+#' @param sel_fun Character vector giving the selectivity function for each
+#'   gear. Supported options include \code{"logistic"}, \code{"normal"}, and
+#'   \code{"dsnormal"}.
+#' @param catch_by_gear Relative catch by gear. Can be supplied as a numeric
+#'   vector or as an \code{FLQuants} object.
+#' @param settings A named list of model settings. Recognized elements are
+#'   \code{CVL}, \code{GL}, \code{catch.sd}, and \code{prior_sigmaF}. Missing
+#'   elements are filled from internal defaults.
+#' @param years Optional numeric vector of years to include in the fit. If
+#'   \code{NULL}, all years in \code{lfd} are used.
+#' @param iter Integer giving the iteration to fit. Iterations are subset in R
+#'   before being passed to TMB.
+#' @param compile Logical; if \code{TRUE}, compile the TMB model before fitting.
+#' @param silent Logical; passed to \code{TMB::MakeADFun()}.
+#' @param dll Character string giving the compiled TMB DLL name.
+#' @param sel_fixed Optional object used to fix selectivity parameters.
+#' @param FLRreport Logical; if \code{TRUE}, convert reported outputs using
+#'   \code{as_FLQuants()}.
 #'
-#' @return An object of class \code{"flicc_tmb_fit"}.
+#' @details
+#' \code{fiticc_core()} prepares the TMB data using \code{data_tmb_flicc()},
+#' initializes model parameters, applies optional selectivity constraints, builds
+#' the TMB objective function with \code{TMB::MakeADFun()}, optimizes it using
+#' \code{nlminb()}, and returns both the optimizer output and reported
+#' quantities.
 #'
-#' @export
-#' Fit multi-year FLicc TMB model
-fiticc <- function(lfd, stklen,
+#' This function is primarily intended for internal use. Most users should call
+#' \code{fiticc()}, which wraps \code{fiticc_core()} and can automatically
+#' refit marginal models with a higher \code{GL}.
+#'
+#' @return
+#' An object of class \code{"flicc_tmb_fit"} with optimizer results, sdreport
+#' output, parameter summaries, reported quantities, and the processed TMB data.
+#'
+#' @seealso \code{\link{fiticc}}, \code{\link{need_refit_flicc}}
+#'
+#' @examples
+#' data(alfonsino)
+#'
+#' fit <- fiticc_core(
+#'   lfd_alfonsino,
+#'   stklen_alfonsino,
+#'   sel_fun = c("dsnormal", "logistic"),
+#'   catch_by_gear = c(0.7, 0.3)
+#' )
+#' @keywords internal
+fiticc_core <- function(lfd, stklen,
                      sel_fun = c("logistic", "normal", "dsnormal"),
                      catch_by_gear,
                      settings = list(
@@ -307,7 +345,7 @@ fiticc <- function(lfd, stklen,
                      compile = FALSE,
                      silent = TRUE,
                      dll = "FLicc",
-                     sel_fixed = NULL,FLRreport=TRUE ) {
+                     sel_fixed = NULL,FLRreport=FALSE ) {
 
   if (!requireNamespace("TMB", quietly = TRUE)) {
     stop("Package 'TMB' is required")
@@ -452,6 +490,217 @@ fiticc <- function(lfd, stklen,
 
 }
 
+#' Fit the FLicc model with an optional stability refit
+#'
+#' Fits the FLicc TMB model to length-frequency data and, by default, performs
+#' one conditional refit with a higher \code{GL} value when the initial fit
+#' shows marginal convergence diagnostics. This gives a fast initial fit for
+#' routine use while improving robustness for first-time users and automated
+#' workflows.
+#'
+#' @param lfd A named list of \code{FLQuant} objects containing observed
+#'   length-frequency distributions by gear.
+#' @param stklen An \code{FLStockLen} object, or compatible FLR object,
+#'   containing stock and life-history information for the same years and
+#'   iterations as \code{lfd}.
+#' @param sel_fun Character vector giving the selectivity function for each
+#'   gear. Supported options include \code{"logistic"}, \code{"normal"}, and
+#'   \code{"dsnormal"}.
+#' @param catch_by_gear Relative catch by gear. Can be supplied as a numeric
+#'   vector or as an \code{FLQuants} object.
+#' @param settings A named list of model settings. Recognized elements are
+#'   \code{CVL}, \code{GL}, \code{catch.sd}, and \code{prior_sigmaF}. Missing
+#'   elements are filled from internal defaults.
+#' @param years Optional numeric vector of years to include in the fit. If
+#'   \code{NULL}, all years in \code{lfd} are used.
+#' @param iter Integer giving the iteration to fit. Iterations are subset in R
+#'   before passing data to TMB.
+#' @param compile Logical; if \code{TRUE}, compile the TMB model before fitting.
+#' @param silent Logical; passed to \code{TMB::MakeADFun()}.
+#' @param dll Character string giving the compiled TMB DLL name.
+#' @param sel_fixed Optional named list or vector used to fix selectivity
+#'   parameters rather than estimate them.
+#' @param FLRreport Logical; if \code{TRUE}, convert reported model outputs to
+#'   FLR-style objects using \code{as_FLQuants()}.
+#' @param safe_fit Logical; if \code{TRUE}, run one conditional refit when the
+#'   initial fit fails basic convergence checks.
+#' @param refit_GL Numeric value of \code{GL} to use for the conditional refit.
+#'
+#' @details
+#' \code{fiticc()} is the main user-facing fitting function. It first calls
+#' \code{fiticc_core()} using the supplied settings. If \code{safe_fit = TRUE}
+#' and the initial fit has non-zero optimizer convergence, a non-finite
+#' objective, or a non-positive-definite Hessian, the model is refitted once
+#' with \code{settings$GL} replaced by \code{refit_GL}.
+#'
+#' This default behaviour is intended to provide a good balance between speed
+#' and stability for routine use, while still exposing the core one-pass fit
+#' through \code{fiticc_core()} for development and debugging.
+#'
+#' @return
+#' An object of class \code{"flicc_tmb_fit"} containing at least:
+#' \describe{
+#'   \item{\code{opt}}{The \code{nlminb()} optimizer output.}
+#'   \item{\code{obj}}{The \code{TMB::MakeADFun()} object.}
+#'   \item{\code{rep}}{The \code{TMB::sdreport()} result.}
+#'   \item{\code{par}}{A data frame of estimated fixed effects and standard
+#'   errors.}
+#'   \item{\code{report}}{Reported model quantities, optionally converted to FLR
+#'   objects when \code{FLRreport = TRUE}.}
+#'   \item{\code{stklen}}{The input stock-length object.}
+#'   \item{\code{tmb_data}}{The processed TMB data list used for fitting.}
+#'   \item{\code{safe_fit}}{A list describing whether the conditional refit was
+#'   enabled and used.}
+#' }
+#'
+#' @seealso \code{\link{fiticc_core}}, \code{\link{need_refit_flicc}}
+#'
+#' @examples
+#' data(alfonsino)
+#'
+#' fit <- fiticc(
+#'   lfd_alfonsino,
+#'   stklen_alfonsino,
+#'   sel_fun = c("dsnormal", "logistic"),
+#'   catch_by_gear = c(0.7, 0.3)
+#' )
+#'
+#' fit$safe_fit
+#' @export
+fiticc <- function(lfd, stklen,
+                   sel_fun = c("logistic", "normal", "dsnormal"),
+                   catch_by_gear,
+                   settings = list(
+                     CVL = 0.1,
+                     GL = 30,
+                     catch.sd = 0.05,
+                     prior_sigmaF = c(log(0.7), 0.1, 1)
+                   ),
+                   years = NULL,
+                   iter = 1,
+                   compile = FALSE,
+                   silent = TRUE,
+                   dll = "FLicc",
+                   sel_fixed = NULL,
+                   FLRreport = TRUE,
+                   safe_fit = TRUE,
+                   refit_GL = 100) {
+
+  fit1 <- fiticc_core(
+    lfd = lfd,
+    stklen = stklen,
+    sel_fun = sel_fun,
+    catch_by_gear = catch_by_gear,
+    settings = settings,
+    years = years,
+    iter = iter,
+    compile = compile,
+    silent = silent,
+    dll = dll,
+    sel_fixed = sel_fixed,
+    FLRreport = FLRreport
+  )
+
+  refit_used <- FALSE
+  fit_final <- fit1
+
+  if (isTRUE(safe_fit) && need_refit_flicc(fit1, grad_tol = grad_tol)) {
+
+    settings2 <- settings
+    settings2$GL <- refit_GL
+
+    fit2 <- tryCatch(
+      fiticc_core(
+        lfd = lfd,
+        stklen = stklen,
+        sel_fun = sel_fun,
+        catch_by_gear = catch_by_gear,
+        settings = settings2,
+        years = years,
+        iter = iter,
+        compile = compile,
+        silent = silent,
+        dll = dll,
+        sel_fixed = sel_fixed,
+        FLRreport = FLRreport
+      ),
+      error = function(e) NULL
+    )
+
+    if (!is.null(fit2)) {
+      fit_final <- fit2
+      refit_used <- TRUE
+    }
+  }
+
+  fit_final$safe_fit <- list(
+    enabled = safe_fit,
+    refit_used = refit_used,
+    initial_GL = settings$GL,
+    refit_GL = if (refit_used) refit_GL else NA_real_,
+    final_needs_refit = need_refit_flicc(fit_final, grad_tol = grad_tol)
+  )
+
+  fit_final
+}
+
+
+#' Check whether a FLicc fit should be refitted
+#'
+#' Applies a small set of basic convergence checks to a fitted FLicc model and
+#' returns whether a conditional refit is recommended.
+#'
+#' @param fit A fitted object of class \code{"flicc_tmb_fit"}.
+#'
+#' @details
+#' The current checks are intentionally simple and are designed for stable
+#' routine use in \code{fiticc()}. A refit is recommended when:
+#' \itemize{
+#'   \item the fit object is \code{NULL},
+#'   \item the optimizer convergence code is not zero,
+#'   \item the objective function is not finite, or
+#'   \item the Hessian reported by \code{TMB::sdreport()} is not positive
+#'   definite.
+#' }
+#'
+#' These checks are used by \code{fiticc()} to decide whether to rerun the model
+#' once with a higher \code{GL} value.
+#'
+#' @return Logical; \code{TRUE} if a refit is recommended, otherwise
+#'   \code{FALSE}.
+#'
+#' @seealso \code{\link{fiticc}}, \code{\link{fiticc_core}}
+#'
+#' @examples
+#' data(alfonsino)
+#'
+#' fit <- fiticc(
+#'   lfd_alfonsino,
+#'   stklen_alfonsino,
+#'   sel_fun = c("dsnormal", "logistic"),
+#'   catch_by_gear = c(0.7, 0.3)
+#' )
+#'
+#' need_refit_flicc(fit)
+
+need_refit_flicc <- function(fit, grad_tol = 0.02) {
+
+  if (is.null(fit))
+    return(TRUE)
+
+  if (is.null(fit$opt$convergence) || fit$opt$convergence != 0)
+    return(TRUE)
+
+  if (is.null(fit$opt$objective) || !is.finite(fit$opt$objective))
+    return(TRUE)
+
+  if (!is.null(fit$rep$pdHess) && !isTRUE(fit$rep$pdHess))
+    return(TRUE)
+
+
+
+  FALSE
+}
 
 #' Apply fixed selectivity settings to FLicc parameters
 #'
@@ -657,3 +906,6 @@ apply_sel_fixed_flicc <- function(parameters, tmb_data, sel_fixed = NULL) {
 
   list(parameters = parameters, map_Sm = Sm_map)
 }
+
+
+

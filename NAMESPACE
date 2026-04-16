@@ -19,6 +19,8 @@ importFrom("utils", "data")
 export(data_tmb_flicc)
 export(init_tmb_flicc)
 export(fiticc)
+export(fiticc_core)
+export(need_refit_flicc)
 export(apply_sel_fixed_flicc)
 
 # --- FLR conversion & utilities ---
