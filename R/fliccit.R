@@ -726,7 +726,7 @@ fspr_flicc <- function(fit, spr = 40, nyears = 1,
                        Sel = NULL, scale_sel = TRUE,
                        spawn_time = 0,
                        interval = c(1e-8, 5),
-                       input = c("FM", "F")) {
+                       input = c( "F","FM")) {
 
   input <- match.arg(input)
   target <- spr / 100

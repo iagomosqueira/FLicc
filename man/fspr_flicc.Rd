@@ -12,7 +12,7 @@ fspr_flicc(
   scale_sel = TRUE,
   spawn_time = 0,
   interval = c(1e-08, 5),
-  input = c("FM", "F")
+  input = c("F", "FM")
 )
 }
 \arguments{

@@ -4,14 +4,11 @@
 \alias{flicc_stklen}
 \title{Update an FLStockLen object with FLicc fitted outputs}
 \usage{
-flicc_stklen(fit, stklen, year = NULL, R0 = 1000)
+flicc_stklen(fit, year = NULL, R0 = 1000)
 }
 \arguments{
 \item{fit}{A fitted \code{"flicc_tmb_fit"} object containing at least
 \code{report$N}, \code{report$FM}, and \code{report$Mk}.}
-
-\item{stklen}{An \code{FLStockLen} object used as a template. Biological
-quantities (e.g. weight, maturity) are retained from this object.}
 
 \item{year}{Optional year selection (currently not used explicitly but
 reserved for future extensions).}

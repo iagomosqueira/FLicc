@@ -4,7 +4,7 @@
 \alias{LBIspr}
 \title{Gear-specific length-based indicator relative to Fspr reference}
 \usage{
-LBIspr(fit, gear = NULL, spr = 40, thresh = 0.8, nyears = 1, scale_sel = TRUE)
+LBIspr(fit, gear = NULL, spr = 40, thresh = 0.75, nyears = 1, scale_sel = TRUE)
 }
 \arguments{
 \item{fit}{fitted flicc_tmb_fit object}
@@ -13,7 +13,7 @@ LBIspr(fit, gear = NULL, spr = 40, thresh = 0.8, nyears = 1, scale_sel = TRUE)
 
 \item{spr}{target SPR percentage, default 40}
 
-\item{thresh}{cumulative threshold used to define Lref, default 0.9}
+\item{thresh}{cumulative threshold used to define Lref, default 0.75}
 
 \item{nyears}{number of terminal years to average}
 

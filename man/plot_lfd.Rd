@@ -28,7 +28,7 @@ plot_lfd(
 
 \item{iter}{Numeric. Iteration to plot (default = 1).}
 
-\item{len_by}{Numeric. Step size used to generate x-axis breaks (default = 2).}
+\item{len_by}{Numeric. Step size used to generate x-axis breaks (default = 5).}
 
 \item{yticks}{Optional numeric vector of y-axis breaks.}
 

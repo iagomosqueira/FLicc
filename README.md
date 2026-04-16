@@ -318,11 +318,15 @@ library(FLicc)
 A standard `FLicc` analysis consists of:
 
 1. Preparing gear-specific length-frequency data and life-history inputs.
-2. Fitting one or more years jointly.
-3. Inspecting fitted selectivity and annual exploitation patterns.
-4. Extracting FLR-compatible outputs.
-5. Evaluating SPR and equilibrium reference curves.
-6. Deriving time-series of structure-based indicators such as SPR, FAO status plots, and `LBIspr`.
+2. Building an `FLStockLen` object with the chosen natural mortality model.
+3. Checking life-history assumptions such as weight-at-length, maturity-at-length, and mortality-at-length.
+4. Fitting one or more years jointly.
+5. Inspecting fitted versus observed length compositions and selectivity patterns.
+6. Converting fitted outputs to FLR-compatible objects.
+7. Evaluating equilibrium reference curves and SPR-based indicators.
+
+For a full reproducible example, see the test script:
+[FLicc test workflow](https://github.com/Henning-Winker/FLicc/blob/main/test.R)
 
 ---
 
@@ -335,48 +339,81 @@ library(FLicc)
 
 data("alfonsino")
 
-# Specify life-history parameters
+# Specify Life History
 lhpar <- FLPar(
   linf = 55.7,
   k    = 0.08,
   M    = 0.162,
   L50  = 31.1859,
-  a    = 0.004721956 / 1000,
+  a    = 0.004721956/1000,
   b    = 3.146168
 )
 
-# Length-frequency observations
-lfd <- lfd_alfonsino
-plot_lfd(lfd, type = "relmax")
+# LFD observations
+lfd<- lfd_alfonsino
+plot_lfd(lfd,type="relmax")
 
 # Build FLStockLen input
-stklen <- stocklen(lfd, lhpar)
+stklen <- stocklen(lfd,lhpar,m_model="constant")
 
-# Fit multi-gear model
-fit <- fiticc(
-  lfd,
-  stklen,
-  sel_fun = c("dsnormal", "logistic"),
-  catch_by_gear = c(0.7, 0.3)
-)
+# check life history input
+plot_lw(stklen)
+plot_mat(stklen)
+plot_m(stklen)
 
-# Create FLStockLen object with fitted quantities
-stkl <- flicc_stklen(fit, stklen_alfonsino)
+# Check m model shapes
+m_models = c("constant", "inverse", "Lorenzen", "Gislason")
+# loop through
 
-# Plot observed vs fitted length compositions
+m_stks <- FLStocks(lapply(m_models,function(x){
+  stocklen(lfd,lhpar,m_model=x)
+}))
+names(m_stks) <- m_models
+plot_m(m_stks)
+
+# Fit model
+fit <- fiticc(lfd, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear = c(0.7,0.3))
+
+
+# Plotting observed vs predicted
 plot_len(fit)
-plot_len(fit, by_gear = TRUE, year = 2020:2024)
+plot_len(fit,by_gear = T,year=2020:2024)
 
-# Status plots
-plot_spr(fit)
-plot_lbfao(fit)
+# Plot Selectivity by gear
+plot_sel(fit)
 
-# Length-based indicator relative to SPR target
-plot_LBIspr(fit, thresh = 0.7)
+
+
+# Option to create FLStockLen
+stkl <- flicc_stklen(fit)
+# Plot, e.g., fishery selectivity weighted by the ratio of catches
+plot_sel(stkl)
+
 
 # Equilibrium dynamics
-eqstk <- eqstklen(fit, s = 0.75)
+eqstk <- eqstklen(fit,s=0.75)
+eqstk@refpts
 plot_eqcurves(eqstk)
+
+
+# Status
+plot_spr(fit)
+plot_lbfao(fit)
+# LBIspr
+plot_LBIspr(fit,thresh = 0.75)
+
+# Convert to simplified FLStockR
+stk <- flicc2FLStockR(fit,stklen)
+stk@refpts
+plot_LBAdvice(stk)
+plot_LBAdvice(stk)
+
+# Equilibrium dynamics
+eqstk <- eqstklen(fit,s=0.75)
+eqstk@refpts
+plot_eqcurves(eqstk)
+
+
 ```
 
 
@@ -388,8 +425,9 @@ Future developments could include:
 
 - exploring random effects on selectivity parameters, for example to allow selected gear-specific selectivity parameters to vary among years while estimating shared mean patterns,
 - isopleth plots for visualising equilibrium trade-offs among fishing mortality, SPR, biomass and yield,
-- additional selectivity options and diagnostics,
-- further expansion of equilibrium and indicator-based reference point tools.
+- additional selectivity options 
+- diagnostics: residuals, likelihood profiling, sensitivities
+- MSE implementation: develop management procedure mp.flicc with harvest control rule options 
 
 ---
 

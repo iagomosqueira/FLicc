@@ -537,7 +537,7 @@ plot_LBIspr <- function(fit, gear = NULL, spr = 40, thresh = 0.8,
 #'
 #' @param lfd An \code{FLQuants} object containing observed length-frequency data.
 #' @param iter Numeric. Iteration to plot (default = 1).
-#' @param len_by Numeric. Step size used to generate x-axis breaks (default = 2).
+#' @param len_by Numeric. Step size used to generate x-axis breaks (default = 5).
 #' @param yticks Optional numeric vector of y-axis breaks.
 #' @param scales Character. Passed to \code{facet_wrap()} (e.g. "fixed", "free_y").
 #' @param type Character. Either:
@@ -1198,4 +1198,649 @@ plot_lbfao <- function(fit,
     )
 
   p
+}
+
+#' Plot advice diagnostics for length-based per-recruit analysis
+#'
+#' Plots annual trajectories of spawning potential ratio (SPR) and fishing
+#' mortality from simplified \code{FLStock} or \code{FLStockR} objects,
+#' including uncertainty intervals and optional reference points.
+#'
+#' The function is designed for outputs derived from length-based per-recruit
+#' workflows such as \code{flicc2FLStockR()}, where:
+#'
+#' \itemize{
+#'   \item \code{ssb()} is interpreted as SPR or relative SPR,
+#'   \item \code{fbar()} is interpreted as applied fishing mortality or
+#'         relative fishing mortality.
+#' }
+#'
+#' If several stocks are supplied in an \code{FLStocks} object, the function
+#' overlays them and plots median and interval summaries for each metric.
+#'
+#' @param object An object of class \code{FLStock}, \code{FLStockR}, or
+#'   \code{FLStocks}.
+#' @param panels Integer vector indicating which panels to plot:
+#'   \code{1} for SPR and \code{2} for fishing mortality. The default is
+#'   \code{c(1, 2)}.
+#' @param plotrefs Logical. If \code{TRUE}, reference points stored in
+#'   \code{object@refpts} are added to the plot.
+#' @param probs Numeric vector of probabilities used for plotting quantile
+#'   intervals. The default is \code{c(0.05, 0.2, 0.50, 0.8, 0.95)}.
+#' @param year_break Integer spacing between x-axis year labels.
+#' @param colour Fill colour used for uncertainty intervals when plotting a
+#'   single stock. The default is \code{"dodgerblue"}.
+#' @param ncol Number of columns in the facet layout. Currently set internally
+#'   to 1 in the function.
+#' @param label.size Numeric size of the reference point labels.
+#' @param ssbQ Integer spawning season or quarter used when extracting
+#'   \code{ssb()} for seasonal models. Default is \code{1}.
+#' @param recQ Included for consistency with related plotting functions. Not
+#'   currently used in the function.
+#'
+#' @return A \code{ggplot} object.
+#'
+#' @details
+#' The plotted metrics are:
+#'
+#' \itemize{
+#'   \item \strong{SPR}: computed from \code{ssb(x)} using
+#'         \code{apply(ssb(x)[,,,ssbQ], c(2,6), sum)}
+#'   \item \strong{F}: computed from \code{fbar(x)} using
+#'         \code{apply(fbar(x), c(2,6), mean)}
+#' }
+#'
+#' For a single stock, shaded quantile bands are drawn using the selected
+#' \code{colour}. For multiple stocks, interval bands and median lines are
+#' overlaid by stock.
+#'
+#' Reference points are grouped by names starting with \code{"B"} or
+#' \code{"F"} and coloured heuristically according to common advice categories,
+#' for example limit, precautionary, target, or boundary reference points.
+#'
+#' @examples
+#' data(alfonsino)
+#'
+#' fit <- fiticc(
+#'   lfd_alfonsino,
+#'   stklen_alfonsino,
+#'   sel_fun = c("dsnormal", "logistic"),
+#'   catch_by_gear = c(0.7, 0.3)
+#' )
+#'
+#' stk <- flicc2FLStockR(fit)
+#' stkr <- flicc2FLStockR(fit,rel=TRUE)
+#'
+#' plot_LBAdvice(stk)
+#' plot_LBAdvice(stkr)
+#' plot_LBAdvice(stkr, panels = 1)
+#' plot_LBAdvice(stkr, panels = 2, plotrefs = FALSE)
+#'
+#' @export
+plot_LBAdvice <- function(object,panels=c(1,2),plotrefs=TRUE,probs=c(0.05,0.2,0.50,0.8,0.95),year_break = 2,colour="dodgerblue",ncol=NULL,label.size=2.5,ssbQ = 1,recQ=1){
+
+  old_lifecycle <- getOption("lifecycle_verbosity")
+  options(lifecycle_verbosity = "quiet")
+  on.exit(options(lifecycle_verbosity = old_lifecycle), add = TRUE)
+
+  if(class(object)%in%c("FLStock","FLStockR"))
+    object = FLStocks(object)
+
+
+  if(is.null(ncol)&&length(panels)>1){
+    ncol=2
+  } else {
+    ncol=1
+  }
+
+  stks <- FLStocks(lapply(object,function(stock){
+    landings = stock@landings
+    stock@landings =computeLandings(stock)
+    stock@landings[is.na(stock@landings)] = landings[is.na(stock@landings)]
+    stock@discards = computeDiscards(stock)
+    stock@catch = computeCatch(stock)
+
+    stock
+  }))
+
+
+
+  rp <- stks[[1]]@refpts
+  year <- an(dimnames(stks[[1]])$year)
+
+  styr = endyr = NULL
+  for(i in 1:length(stks)){
+    styr = min(styr, range(stks[[i]])["minyear"])
+    endyr = max(endyr, range(stks[[i]])["maxyear"])
+  }
+  iv = ceiling(length(styr:endyr)/8)
+
+
+
+  if(length(stks)==1) stks = stks[[1]]
+
+
+  leg = theme(legend.key.size = unit(0.3, 'cm'), #change legend key size
+                legend.key.height = unit(0.5, 'cm'), #change legend key height
+                legend.key.width = unit(0.3, 'cm'), #change legend key width
+                legend.title = element_blank(), #change legend title font size
+                legend.text = element_text(size=7),
+                axis.text.x= element_text(size=7)) #change legend text font size
+
+
+      ### PLOT
+      p = suppressMessages(ggplotFL::plot(stks,
+                         metrics=list(SPR=function(x)apply(ssb(x)[,,,ssbQ],c(2,6),sum),F=function(x)apply(fbar(x),c(2,6),mean))[panels])+
+        ylim(c(0, NA))+ theme_bw()+leg+
+        xlab("Year")+ facet_wrap(~qname, scales="free",ncol=ncol))
+
+      if(length(stks)==1){
+        p = p +ggplotFL::geom_flquantiles(fill=colour, probs=probs[c(1,3,5)], alpha=0.2) +
+          ggplotFL::geom_flquantiles(fill=colour, probs=probs[c(2,3,4)], alpha=0.4)
+      }  else {
+        p = p +ggplotFL::geom_flquantiles(colour=NA, probs=probs[c(1,3,5)], alpha=0.2) +
+          ggplotFL::geom_flquantiles(colour=NA, probs=probs[c(2,3,4)], alpha=0.4)+
+          ggplotFL::geom_flquantiles( probs=probs[c(3)])
+
+      }
+
+  if(class(stks)%in%c("FLStockR","FLStock")){
+    stk=stks
+  } else {
+    stk = stks[[1]]
+  }
+
+  xy =quantile(dims(stk)$minyear:dims(stk)$maxyear,c(0.2,0.45,0.75,0.6,0.3,0.5,0.1))
+
+
+    Fs = FLPar(an(rp[substr(rownames(rp),1,1)%in%"F"]),
+               params=rownames(rp)[substr(rownames(rp),1,1)%in%"F"])
+    nf = length(Fs)
+    Bs = FLPar(an(rp[substr(rownames(rp),1,1)%in%"B"]),
+               params=paste0(rownames(rp)[substr(rownames(rp),1,1)%in%"B"],""))
+
+    nb = length(Bs)
+
+  if(plotrefs){
+
+    Bsc = data.frame(red =  rownames(Bs)%in%c("Bcrit","Blim"),
+                     orange = rownames(Bs)%in%c("Bpa","Bthr"),
+                     green = !rownames(Bs)%in%c("B0","SPR0","Bpa","Bthr","Btri","Btrigger","Bcrit","Blim"),
+                     blue = rownames(Bs)%in%c("B0","SPR0","Btrigger","Btri")
+    )
+    Fsc = data.frame(red =  rownames(Fs)%in%c("Flim","Fext","Fcrash","Fcrit"),
+                     orange = rownames(Fs)%in%c("Fpa","Fthr","Fthresh","Ftri","Fp0.5"),
+                     green = !rownames(Fs)%in%c("Fpa","Fthr","Fcrit","Flim","Fext","Fcrash","Fp0.5","Flower","Fupper","Fmys.low","Fmsy.up"),
+                     blue = rownames(Fs)%in%c("Flower","Fupper","Fmsy.low","Fmsy.up")
+    )
+
+
+    bcol = NULL
+    for(i in 1:length(Bs))  bcol = c(bcol,c("red","orange","darkgreen","blue")[which(Bsc[i,]==TRUE)])
+    fcol = NULL
+    for(i in 1:length(Fs))  fcol = c(fcol,c("red","darkorange","darkgreen","blue")[which(Fsc[i,]==TRUE)])
+
+   colo <- unname(unlist(list(b=bcol,f=fcol)[panels]))
+   posx <- unname(unlist(list(b=xy[1:length(Bs)],f=xy[1:length(Fs)])[panels]))
+
+
+    qn = c("SPR","F")[panels]
+
+      #posx = posx[-length(posx)] #if(any(!is.na(Ys))){
+      #colo = colo[-length(colo)]
+      #posx = posx[-c(8)]
+      #colo = colo[-c(8)]
+      #} else {
+      #  posx = posx[-c(7:8)]
+      #  colo = colo[-c(7:8)]
+
+      #}
+      p = p+facet_wrap(~qname,scales="free_y",ncol= ncol)
+
+    fps =FLPars(SSB  =Bs,
+                F    =Fs,
+                )[panels]
+    fps@names = qn
+    ggp = ggplotFL::geom_flpar(data=fps,x=posx,colour=colo)
+
+    ggp[[2]]$aes_params$size=label.size
+    p = p +ggp
+  }
+
+  yr_breaks <- rev(seq(max(year),min(year),-year_break))
+  p <-  p+ggplot2::scale_x_continuous(breaks = yr_breaks)
+  return(p)
+}
+# }}}
+
+
+#' Plot selectivity curves by gear
+#'
+#' Plots selectivity-at-length either from a fitted \code{"flicc_tmb_fit"}
+#' object or from an \code{FLStockLen} object.
+#'
+#' For fitted objects, selectivity is taken from \code{fit$report$sel_gear}.
+#' For \code{FLStockLen} objects, selectivity is approximated by scaling
+#' \code{harvest()} within each year to a maximum of 1.
+#'
+#' @param object A \code{"flicc_tmb_fit"} or \code{FLStockLen} object.
+#' @param year Optional year or vector of years to include. Defaults to
+#'   \code{NULL}, meaning all available years are shown.
+#' @param gear Optional character vector of gears to include. Defaults to
+#'   \code{NULL}, meaning all available gears are shown.
+#' @param facets Logical. If \code{TRUE}, facet by year for \code{FLStockLen}
+#'   objects. Ignored for fitted objects unless annual selectivity is available.
+#' @param colours Optional named character vector of colours. If \code{NULL},
+#'   colours are assigned automatically using the same generic palette logic as
+#'   \code{plot_lfd()}.
+#' @param line_width Numeric line width for selectivity curves.
+#' @param len_by Numeric. Step size used to generate x-axis breaks (default = 5).
+#'
+#' @return A \code{ggplot2} object.
+#'
+#' @export
+plot_sel <- function(object, year = NULL, gear = NULL,
+                     facets = FALSE, colours = NULL,
+                     line_width = 0.7, len_by = 5) {
+
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    stop("Package 'ggplot2' is required.")
+  }
+
+  base_cols <- c(
+    "#D55E00", "#0072B2", "#009E73", "#CC79A7",
+    "#E69F00", "#56B4E9", "#F0E442", "#999999"
+  )
+
+  base_cols <- rep(base_cols,10)
+
+  #--------------------------------------------------
+  # flicc_tmb_fit
+  #--------------------------------------------------
+  if (inherits(object, "flicc_tmb_fit")) {
+
+    if (is.null(object$report$sel_gear)) {
+      stop("object$report$sel_gear not found.")
+    }
+
+    sel <- object$report$sel_gear
+    df <- as.data.frame(sel)
+    lens <- sort(unique(df$len))
+    len_breaks <- seq(min(lens, na.rm = TRUE), max(lens, na.rm = TRUE), by = len_by)
+
+    # expected FLQuants names are gear names
+    df$gear <- as.character(df$qname)
+
+    if (!is.null(gear)) {
+      df <- df[df$gear %in% gear, , drop = FALSE]
+    }
+
+    glevels <- unique(df$gear)
+
+    if (is.null(colours)) {
+      colours <- stats::setNames(
+        rep(base_cols, length.out = length(glevels)),
+        glevels
+      )
+    } else {
+      if (is.null(names(colours))) {
+        stop("'colours' must be a named vector with names matching gear names")
+      }
+      colours <- colours[glevels]
+    }
+
+    p <- ggplot2::ggplot(
+      df,
+      ggplot2::aes(x = len, y = data, colour = gear, group = gear)
+    ) +
+      ggplot2::geom_line(linewidth = line_width) +
+      ggplot2::scale_colour_manual(values = colours, drop = FALSE) +
+      ggplot2::theme_bw() +
+      ggplot2::scale_x_continuous(breaks = len_breaks) +
+      ggplot2::labs(x = "Length", y = "Selectivity", colour = NULL) +
+      ggplot2::theme(
+        legend.title = ggplot2::element_blank(),
+        panel.grid.minor = ggplot2::element_blank(),
+        axis.title = ggplot2::element_text(face = "bold")
+      )
+
+    return(p)
+  }
+
+  #--------------------------------------------------
+  # FLStockLen
+  #--------------------------------------------------
+  if (inherits(object, "FLStockLen")) {
+
+
+      h <- harvest(object)
+      out <- h %/% apply(h, 2:6, max, na.rm = TRUE)
+
+
+    if (!is.null(year)) {
+      out <- out[, ac(year)]
+    }
+
+    if (!is.null(gear)) {
+      keep <- names(out) %in% gear
+      out <- out[keep]
+    }
+
+    df <- as.data.frame(out)
+    df$year <- ac(df$year)
+    lens <- sort(unique(df$len))
+    len_breaks <- seq(min(lens, na.rm = TRUE), max(lens, na.rm = TRUE), by = len_by)
+
+
+    if (is.null(colours)) {
+      colours <- stats::setNames(
+        rep(base_cols, length.out = length(glevels)),
+        glevels
+      )
+    } else {
+      if (is.null(names(colours))) {
+        stop("'colours' must be a named vector with names matching gear names")
+      }
+      colours <- colours[glevels]
+    }
+
+    p <- ggplot2::ggplot(
+      df,
+      ggplot2::aes(x = len, y = data, colour = year)
+    ) +
+      ggplot2::geom_line(linewidth = line_width) +
+      ggplot2::theme_bw() +
+      ggplot2::scale_x_continuous(breaks = len_breaks) +
+      ggplot2::labs(x = "Length", y = "Selectivity", colour = NULL) +
+      ggplot2::theme(
+        legend.title = ggplot2::element_blank(),
+        panel.grid.minor = ggplot2::element_blank(),
+        axis.title = ggplot2::element_text(face = "bold")
+      )
+
+    if (isTRUE(facets)) {
+      p <- p + ggplot2::facet_wrap(~ year)
+    }
+
+    return(p)
+  }
+
+  stop("object must be of class 'flicc_tmb_fit' or 'FLStockLen'.")
+}
+
+#' Plot natural mortality-at-length curves
+#'
+#' Plots mean natural mortality-at-length, \eqn{M(L)}, from an
+#' \code{FLStockLen} or \code{FLStocks} object. If multiple years are present,
+#' the plot uses the mean over the last \code{nyears}.
+#'
+#' If a single \code{FLStockLen} object is supplied, it is internally coerced
+#' to an \code{FLStocks} object named \code{M_l}.
+#'
+#' @param object An \code{FLStockLen} or \code{FLStocks} object.
+#' @param nyears Integer number of most recent years over which to average
+#'   \code{m()}. Default is \code{1}.
+#' @param len_by Numeric spacing for length-axis tick marks. Default is
+#'   \code{5}.
+#' @param colours Optional named character vector of colours. If \code{NULL},
+#'   colours are assigned automatically using the same generic palette logic as
+#'   other FLicc plotting functions.
+#' @param line_width Numeric line width for mortality curves. Default is
+#'   \code{0.8}.
+#'
+#' @return A \code{ggplot2} object.
+#'
+#' @examples
+#' \dontrun{
+#' plot_m(stklen)
+#' plot_m(stklen, nyears = 3)
+#' plot_m(stklen, len_by = 5)
+#' plot_m(stklen, colours = c(M_l = "black"))
+#' }
+#'
+#' @export
+plot_m <- function(object, nyears = 1, len_by = 5,
+                   colours = NULL, line_width = 0.8) {
+
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    stop("Package 'ggplot2' is required.")
+  }
+
+  if (inherits(object, "FLStockLen")) {
+    object <- FLCore::FLStocks(M_l = object)
+  }
+
+  year <- dimnames(object[[1]])$year
+  yrs <- tail(year, min(nyears, length(year)))
+
+  out <- FLCore::FLQuants(lapply(object, function(x) {
+    FLCore::yearMeans(FLCore::m(x)[, yrs])
+  }))
+
+  df <- as.data.frame(out)
+
+  qlevels <- unique(as.character(df$qname))
+
+  if (is.null(colours)) {
+    base_cols <- c(
+      "#D55E00", "#0072B2", "#009E73", "#CC79A7",
+      "#E69F00", "#56B4E9", "#F0E442", "#999999"
+    )
+    colours <- stats::setNames(
+      rep(base_cols, length.out = length(qlevels)),
+      qlevels
+    )
+  } else {
+    if (is.null(names(colours))) {
+      stop("'colours' must be a named vector with names matching series names")
+    }
+    colours <- colours[qlevels]
+  }
+
+  lens <- sort(unique(df$len))
+  len_breaks <- seq(min(lens, na.rm = TRUE), max(lens, na.rm = TRUE), by = len_by)
+
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = len, y = data, colour = qname)) +
+    ggplot2::geom_line(linewidth = line_width) +
+    ggplot2::scale_x_continuous(breaks = len_breaks) +
+    ggplot2::scale_colour_manual(values = colours, drop = FALSE) +
+    ggplot2::theme_bw() +
+    ggplot2::ylab("M(L)") +
+    ggplot2::xlab("Length") +
+    ggplot2::theme(
+      legend.title = ggplot2::element_blank(),
+      panel.grid.minor = ggplot2::element_blank()
+    )
+
+  if (length(out) == 1) {
+    p <- p + ggplot2::theme(legend.position = "none")
+  }
+  p + ggplot2::scale_y_continuous(n.breaks = 8)
+
+  return(p)
+}
+
+
+#' Plot maturity-at-length curves
+#'
+#' Plots mean maturity-at-length from an \code{FLStockLen} or
+#' \code{FLStocks} object. If multiple years are present, the plot uses the
+#' mean over the last \code{nyears}.
+#'
+#' If a single \code{FLStockLen} object is supplied, it is internally coerced
+#' to an \code{FLStocks} object named \code{mat_l}.
+#'
+#' @param object An \code{FLStockLen} or \code{FLStocks} object.
+#' @param nyears Integer number of most recent years over which to average
+#'   \code{mat()}. Default is \code{1}.
+#' @param len_by Numeric spacing for length-axis tick marks. Default is
+#'   \code{5}.
+#' @param colours Optional named character vector of colours. If \code{NULL},
+#'   colours are assigned automatically using the same generic palette logic as
+#'   other FLicc plotting functions.
+#' @param line_width Numeric line width for maturity curves. Default is
+#'   \code{0.8}.
+#'
+#' @return A \code{ggplot2} object.
+#'
+#' @examples
+#' \dontrun{
+#' plot_mat(stklen)
+#' plot_mat(stklen, nyears = 3)
+#' plot_mat(stklen, len_by = 5)
+#' plot_mat(stklen, colours = c(mat_l = "black"))
+#' }
+#'
+#' @export
+plot_mat <- function(object, nyears = 1, len_by = 5,
+                     colours = NULL, line_width = 0.8) {
+
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    stop("Package 'ggplot2' is required.")
+  }
+
+  if (inherits(object, "FLStockLen")) {
+    object <- FLCore::FLStocks(mat_l = object)
+  }
+
+  year <- dimnames(object[[1]])$year
+  yrs <- tail(year, min(nyears, length(year)))
+
+  out <- FLCore::FLQuants(lapply(object, function(x) {
+    FLCore::yearMeans(mat(x)[, yrs])
+  }))
+
+  df <- as.data.frame(out)
+
+  qlevels <- unique(as.character(df$qname))
+
+  if (is.null(colours)) {
+    base_cols <- c(
+      "#D55E00", "#0072B2", "#009E73", "#CC79A7",
+      "#E69F00", "#56B4E9", "#F0E442", "#999999"
+    )
+    colours <- stats::setNames(
+      rep(base_cols, length.out = length(qlevels)),
+      qlevels
+    )
+  } else {
+    if (is.null(names(colours))) {
+      stop("'colours' must be a named vector with names matching series names")
+    }
+    colours <- colours[qlevels]
+  }
+
+  lens <- sort(unique(df$len))
+  len_breaks <- seq(min(lens, na.rm = TRUE), max(lens, na.rm = TRUE), by = len_by)
+
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = len, y = data, colour = qname)) +
+    ggplot2::geom_line(linewidth = line_width) +
+    ggplot2::scale_x_continuous(breaks = len_breaks) +
+    ggplot2::scale_colour_manual(values = colours, drop = FALSE) +
+    ggplot2::theme_bw() +
+    ggplot2::ylab("Maturity") +
+    ggplot2::xlab("Length (cm)") +
+    ggplot2::theme(
+      legend.title = ggplot2::element_blank(),
+      panel.grid.minor = ggplot2::element_blank()
+    )+geom_hline(yintercept = 0.5,linetype=2)
+
+  if (length(out) == 1) {
+    p <- p + ggplot2::theme(legend.position = "none")
+  }
+
+  return(p)
+}
+
+
+#' Plot catch weight-at-length curves
+#'
+#' Plots mean catch weight-at-length from an \code{FLStockLen} or
+#' \code{FLStocks} object. If multiple years are present, the plot uses the
+#' mean over the last \code{nyears}.
+#'
+#' If a single \code{FLStockLen} object is supplied, it is internally coerced
+#' to an \code{FLStocks} object named \code{catch.wt_l}.
+#'
+#' @param object An \code{FLStockLen} or \code{FLStocks} object.
+#' @param nyears Integer number of most recent years over which to average
+#'   \code{catch.wt()}. Default is \code{1}.
+#' @param len_by Numeric spacing for length-axis tick marks. Default is
+#'   \code{5}.
+#' @param colours Optional named character vector of colours. If \code{NULL},
+#'   colours are assigned automatically using the same generic palette logic as
+#'   other FLicc plotting functions.
+#' @param line_width Numeric line width for catch weight curves. Default is
+#'   \code{0.8}.
+#'
+#' @return A \code{ggplot2} object.
+#'
+#' @examples
+#' \dontrun{
+#' plot_lw(stklen)
+#' plot_lw(stklen, nyears = 3)
+#' plot_lw(stklen, len_by = 5)
+#' plot_lw(stklen, colours = c(catch.wt_l = "black"))
+#' }
+#'
+#' @export
+plot_lw <- function(object, nyears = 1, len_by = 5,
+                    colours = NULL, line_width = 0.8) {
+
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    stop("Package 'ggplot2' is required.")
+  }
+
+  if (inherits(object, "FLStockLen")) {
+    object <- FLCore::FLStocks(catch.wt_l = object)
+  }
+
+  year <- dimnames(object[[1]])$year
+  yrs <- tail(year, min(nyears, length(year)))
+
+  out <- FLCore::FLQuants(lapply(object, function(x) {
+    FLCore::yearMeans(FLCore::catch.wt(x)[, yrs])
+  }))
+
+  df <- as.data.frame(out)
+
+  qlevels <- unique(as.character(df$qname))
+
+  if (is.null(colours)) {
+    base_cols <- c(
+      "#D55E00", "#0072B2", "#009E73", "#CC79A7",
+      "#E69F00", "#56B4E9", "#F0E442", "#999999"
+    )
+    colours <- stats::setNames(
+      rep(base_cols, length.out = length(qlevels)),
+      qlevels
+    )
+  } else {
+    if (is.null(names(colours))) {
+      stop("'colours' must be a named vector with names matching series names")
+    }
+    colours <- colours[qlevels]
+  }
+
+  lens <- sort(unique(df$len))
+  len_breaks <- seq(min(lens, na.rm = TRUE), max(lens, na.rm = TRUE), by = len_by)
+
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = len, y = data, colour = qname)) +
+    ggplot2::geom_line(linewidth = line_width) +
+    ggplot2::scale_x_continuous(breaks = len_breaks) +
+    ggplot2::scale_colour_manual(values = colours, drop = FALSE) +
+    ggplot2::theme_bw() +
+    ggplot2::ylab("Weight  (kg)") +
+    ggplot2::xlab("Length (vm)") +
+    ggplot2::theme(
+      legend.title = ggplot2::element_blank(),
+      panel.grid.minor = ggplot2::element_blank()
+    )
+
+  if (length(out) == 1) {
+    p <- p + ggplot2::theme(legend.position = "none")
+  }
+  p <- p + ggplot2::scale_y_continuous(n.breaks = 6)
+
+  return(p)
 }

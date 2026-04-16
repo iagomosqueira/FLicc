@@ -286,8 +286,6 @@ fbarl <- function(stk, lrange = NULL) {
 #'
 #' @param fit A fitted \code{"flicc_tmb_fit"} object containing at least
 #'   \code{report$N}, \code{report$FM}, and \code{report$Mk}.
-#' @param stklen An \code{FLStockLen} object used as a template. Biological
-#'   quantities (e.g. weight, maturity) are retained from this object.
 #' @param year Optional year selection (currently not used explicitly but
 #'   reserved for future extensions).
 #' @param R0 Numeric recruitment scaling factor. Numbers-at-length are scaled
@@ -337,8 +335,9 @@ fbarl <- function(stk, lrange = NULL) {
 #' catch.n(stkl)
 #'
 #' @export
-flicc_stklen <- function(fit, stklen, year = NULL, R0 = 1000){
+flicc_stklen <- function(fit, year = NULL, R0 = 1000){
 
+  stklen <- fit$stklen
   # -----------------------------
   # checks
   # -----------------------------
@@ -402,3 +401,156 @@ flicc_stklen <- function(fit, stklen, year = NULL, R0 = 1000){
   return(stky)
 }
 
+
+
+#' Convert a FLicc fit and FLStockLen template to a simplified FLStockR
+#'
+#' Builds a simplified one-age \code{FLStockR} object from a fitted
+#' \code{FLicc} model and an \code{FLStockLen} template.
+#'
+#' The function first updates the supplied \code{stklen} object with fitted
+#' quantities using \code{flicc_stklen()}. It then constructs a simplified
+#' annual \code{FLStockR} object in which:
+#'
+#' \itemize{
+#'   \item \code{ssb()} represents spawning potential ratio (SPR),
+#'   \item \code{fbar()} represents applied fishing mortality from
+#'         \code{fapl(stk)},
+#'   \item reference points are derived from \code{eqstklen()} using the
+#'         target SPR level.
+#' }
+#'
+#' If \code{rel = TRUE}, the returned object is rescaled to relative reference
+#' point units:
+#'
+#' \itemize{
+#'   \item \code{ssb()} is expressed as \eqn{SPR / SPR_{target}},
+#'   \item \code{fbar()} is expressed as \eqn{F / F_{SPR}},
+#'   \item \code{Fspr = 1} and \code{Bspr = 1}.
+#' }
+#'
+#' This format is intended for plotting, diagnostics, and simple harvest
+#' control rule applications using relative SPR-based metrics.
+#'
+#' @param fit A fitted \code{FLicc} object.
+#' @param spr.btgt Numeric SPR target on the proportional scale. The default
+#'   is \code{0.4}, corresponding to \code{Fspr40}.
+#' @param bpa Numeric precautionary biomass threshold on the same SPR scale.
+#'   The default is \code{0.2}.
+#' @param blim Numeric biomass limit on the same SPR scale. The default is
+#'   \code{0.1}.
+#' @param rel Logical. If \code{FALSE} (default), the output is on the absolute
+#'   SPR scale. If \code{TRUE}, SPR and fishing mortality are rescaled relative
+#'   to the SPR target and \code{Fspr}, respectively.
+#'
+#' @return An object of class \code{FLStockR}.
+#'
+#' @details
+#' The returned object is a simplified single-age representation. Quantities
+#' such as catch, landings, discards, and harvest are carried forward as annual
+#' fitted values, while the maturity slot is used to store SPR so that
+#' \code{ssb()} returns the SPR metric directly.
+#'
+#' Reference points are computed from:
+#' \preformatted{
+#' eqstklen(fit, F = c(0, mean(stk@m)), spr.tgt = spr.btgt * 100)
+#' }
+#'
+#' where \code{SPR0} and \code{Fspr} are extracted from the resulting reference
+#' point table.
+#'
+#' @seealso \code{\link{flicc_stklen}}, \code{\link{eqstklen}},
+#'   \code{\link[FLCore]{FLStock}}, \code{\link[FLasher]{FLStockR}}
+#'
+#' @examples
+#' data(alfonsino)
+#'
+#' fit <- fiticc(
+#'   lfd_alfonsino,
+#'   stklen_alfonsino,
+#'   sel_fun = c("dsnormal", "logistic"),
+#'   catch_by_gear = c(0.7, 0.3)
+#' )
+#'
+#' stkr <- flicc2FLStockR(fit)
+#' ssb(stkr)
+#' fbar(stkr)
+#' refpts(stkr)
+#'
+#' stkr_rel <- flicc2FLStockR(fit rel = TRUE)
+#' ssb(stkr_rel)
+#' fbar(stkr_rel)
+#' refpts(stkr_rel)
+#'
+#' @export
+flicc2FLStockR <- function(fit, spr.btgt = 0.4, bpa = 0.2, blim = 0.1, rel = FALSE) {
+
+  stklen <- fit$stklen
+
+  stk <- flicc_stklen(fit,stklen)
+  year <- dimnames(stklen)$year
+
+  N = as.FLQuant(data.frame(age=1,year=year,unit="unique",
+                            season="all",area="unique",iter=1,data=1))
+  B = N
+  H = N
+  C = N
+  D = N
+  L = N
+  B[] <- FLQuant(stock(stk),quant="age")
+  H[] <- FLQuant(fapl(stk),quant="age")
+  C[] <- FLQuant(catch(stk),quant="age")
+  L[] <-  FLQuant(landings(stk),quant="age")
+  D[] <- FLQuant(discards(stk),quant="age")
+
+  eqs<- eqstklen (fit,F=c(0,mean(stk@m)),spr.tgt = spr.btgt*100)
+  spr0 <- an(eqs@refpts["SPR0"])
+  fspr <-  an(eqs@refpts["Fspr"])
+
+  if(rel){
+  H <- H/ fspr
+  B <- B/ spr.btgt
+  }
+
+
+  stkr = FLStockR(
+    stock.n=N,
+    catch.n = C,
+    landings.n = C,
+    discards.n = FLQuant(0, dimnames=list(age="1", year = (year))),
+    stock.wt=FLQuant(1, dimnames=list(age="1", year = (year))),
+    landings.wt=FLQuant(1, dimnames=list(age="1", year = year)),
+    discards.wt=FLQuant(1, dimnames=list(age="1", year = year)),
+    catch.wt=FLQuant(1, dimnames=list(age="1", year = year)),
+    mat=B,
+    m=FLQuant(0.0001, dimnames=list(age="1", year = year)),
+    harvest = H,
+    m.spwn = FLQuant(0, dimnames=list(age="1", year = year)),
+    harvest.spwn = FLQuant(0.0, dimnames=list(age="1", year = year))
+  )
+
+
+  units(stkr) = standardUnits(stkr)
+  stkr@catch = computeCatch(stkr)
+  stkr@landings = computeLandings(stkr)
+  stkr@discards = computeDiscards(stkr)
+  stkr@stock = B
+
+  stkr@refpts = FLPar(
+    Fspr =fspr ,
+    Bspr = spr.btgt,
+    Bpa= bpa,
+    Blim= blim,
+  )
+  if(rel){
+    stkr@refpts = FLPar(
+      Fspr =1,
+      Bspr = 1,
+      Bpa= bpa/spr.btgt,
+      Blim= blim/spr.btgt,
+    )
+
+  }
+
+  return(stkr)
+}
