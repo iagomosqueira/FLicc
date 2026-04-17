@@ -266,7 +266,31 @@ In that sense, `LBIspr` sits naturally between these two lines of work:
 
 `FLicc` depends on `FLCore`, `ggplotFL`, and `TMB`. The FLR packages are available from the FLR r-universe repository, while `TMB` is installed from CRAN. On Windows, installing `TMB` from source requires Rtools.
 
-### 1. Install FLR dependencies
+
+
+### 1. Install required packages
+
+```r
+install.packages("devtools")
+install.packages("TMB", type = "source")
+install.packages("ggplot2")
+```
+
+`TMB` is the estimation engine used by `FLicc`. Installing from source ensures compatibility when compiling models and linking against the local toolchain.
+
+### 2. Windows only: install Rtools (if not already installed)
+
+On Windows, `TMB` requires Rtools. You can install in R from:
+
+
+```r
+browseURL("https://cran.r-project.org/bin/windows/Rtools/")
+```
+
+After installation, restart R before proceeding.
+
+
+### 3. Install FLR dependencies
 
 ```r
 install.packages(
@@ -275,37 +299,12 @@ install.packages(
 )
 ```
 
-### 2. Install required packages
-
-```r
-install.packages("devtools")
-install.packages("TMB", type = "source")
-```
-
-`TMB` is the estimation engine used by `FLicc`. Installing from source ensures compatibility when compiling models and linking against the local toolchain.
-
-### 3. Windows only: install Rtools (if not already installed)
-
-On Windows, `TMB` requires Rtools. You can install it directly from R:
-
-```r
-install.packages("pkgbuild")
-pkgbuild::install_build_tools()
-```
-
-Alternatively, install manually from CRAN:
-
-```r
-browseURL("https://cran.r-project.org/bin/windows/Rtools/")
-```
-
-After installation, restart R before proceeding.
-
 ### 4. Install FLicc
 
 ```r
 devtools::install_github("henning-winker/FLicc")
 ```
+
 
 ### 5. Load the package
 
