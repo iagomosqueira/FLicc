@@ -261,6 +261,8 @@ as_FLQuants <- function(fit,stklen) {
   out$Lmid = tmb_data$Lmid
   out$node <- tmb_data$node
   out$quad_wt <- tmb_data$quad_wt
+  out$logLik <- -fit$opt$objective
+
   out$FLReport <- TRUE
   return(out)
 
@@ -432,3 +434,43 @@ selpars_flicc <- function(fit) {
 
 }
 
+#' Extract log-likelihood from a fitted FLicc model
+#'
+#' Returns the fitted log-likelihood from a \code{"flicc_tmb_fit"} object as a
+#' \code{logLik}-class object. The value is computed as the negative of the
+#' TMB objective function at the optimum.
+#'
+#' The returned object includes \code{df}, taken as the number of estimated
+#' parameters in \code{object$opt$par}, and \code{nobs}, taken as the number of
+#' rows in \code{as.data.frame(object$report$obslen)}.
+#'
+#' @param object A fitted \code{"flicc_tmb_fit"} object.
+#' @param ... Additional arguments, ignored.
+#'
+#' @return An object of class \code{logLik}.
+#'
+#' @details
+#' This helper assumes that \code{object$opt$objective} is the negative
+#' log-likelihood returned by TMB. If penalties or priors were included in the
+#' objective function, the returned value should be interpreted as the
+#' corresponding penalized log-likelihood or objective-based criterion rather
+#' than a pure data likelihood.
+#'
+#' @examples
+#' \dontrun{
+#' LL <- LLflicc(fit)
+#' LL
+#' AIC(LL)
+#' BIC(LL)
+#' }
+#'
+#' @export
+
+LLflicc <- function(object, ...) {
+  structure(
+    -object$opt$objective,
+    df = length(object$opt$par),
+    nobs = nrow(as.data.frame(object$report$obslen)),
+    class = "logLik"
+  )
+}

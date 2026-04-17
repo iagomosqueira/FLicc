@@ -356,7 +356,10 @@ fiticc_core <- function(lfd, stklen,
     CVL = 0.1,
     GL = 50,
     catch.sd = 0.05,
-    prior_sigmaF = c(log(0.3), 0.3, 1)   # optional
+    prior_sigmaF = c(log(0.3), 0.3, 1),
+    linf.sd = NULL,
+    Mk.sd = NULL,
+    CVL.sd = NULL
   )
 
   # ---- merge user settings with defaults ----
@@ -485,6 +488,10 @@ fiticc_core <- function(lfd, stklen,
     ),
     class = "flicc_tmb_fit"
   )
+
+  fit$logLik <- LLflicc(fit)
+
+
   if(FLRreport){fit$report <- as_FLQuants(fit,stklen)} else {fit$report$FLReport=FALSE}
   return(fit)
 
@@ -574,7 +581,10 @@ fiticc <- function(lfd, stklen,
                      CVL = 0.1,
                      GL = 30,
                      catch.sd = 0.05,
-                     prior_sigmaF = c(log(0.7), 0.1, 1)
+                     prior_sigmaF = c(log(0.7), 0.1, 1),
+                     linf.sd = NULL,
+                     Mk.sd = NULL,
+                     CVL.sd = NULL
                    ),
                    years = NULL,
                    iter = 1,
