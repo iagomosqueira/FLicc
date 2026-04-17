@@ -1532,17 +1532,6 @@ plot_sel <- function(object, year = NULL, gear = NULL,
     len_breaks <- seq(min(lens, na.rm = TRUE), max(lens, na.rm = TRUE), by = len_by)
 
 
-    if (is.null(colours)) {
-      colours <- stats::setNames(
-        rep(base_cols, length.out = length(glevels)),
-        glevels
-      )
-    } else {
-      if (is.null(names(colours))) {
-        stop("'colours' must be a named vector with names matching gear names")
-      }
-      colours <- colours[glevels]
-    }
 
     p <- ggplot2::ggplot(
       df,
