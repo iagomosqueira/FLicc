@@ -45,21 +45,21 @@ As a result, the joint likelihood across gears constrains the solution space, re
 
 ## Core model idea
 
-The model assumes an approximate steady state and tracks survival through sequential length intervals under growth and mortality. In the underlying framework, survival to length interval \(n\) is computed across intervals and integrated over variability in asymptotic length \(L_\infty\), allowing growth variability to be carried into the expected length composition. Numerical integration is then used to obtain relative abundance-at-length. :contentReference[oaicite:4]{index=4}
+The model assumes an approximate steady state and tracks survival through sequential length intervals under growth and mortality. In the underlying framework, survival to length interval $n$ is computed across intervals and integrated over variability in asymptotic length $L_\infty$, allowing growth variability to be carried into the expected length composition. Numerical integration is then used to obtain relative abundance-at-length. :contentReference[oaicite:4]{index=4}
 
-Catch in length interval \(i\) is given by:
+Catch in length interval $i$ is given by:
 
 $$
 c_i = \frac{F_i}{Z_i}(S_i - S_{i+1})
 $$
 
-where \(S_i\) is survival to the lower bound of interval \(i\), \(F_i\) is fishing mortality at length, and \(Z_i = M_i + F_i\) is total mortality at length. For gear \(j\), catch per recruit is:
+where $S_i$ is survival to the lower bound of interval $i$, $F_i$ is fishing mortality at length, and $Z_i = M_i + F_i$ is total mortality at length. For gear $j$, catch per recruit is:
 
 $$
 C_j = \sum_{i=1}^{N} \frac{F_{ij}}{Z_i}(S_i - S_{i+1})
 $$
 
-and the relative catch share of gear \(j\) is:
+and the relative catch share of gear $j$ is:
 
 $$
 p_j = \frac{C_j}{\sum_{g=1}^{G} C_g}
@@ -73,15 +73,15 @@ $$
 Z_i = M_i + \sum_j F_j \sum_k w_k \, sel_{ijk}
 $$
 
-where \(F_j\) is the apical fishing mortality for gear \(j\), \(sel_{ijk}\) is the selectivity component at length for gear \(j\), and \(w_k\) are mixture weights when multiple selectivity components are used. This is the key decomposition that allows `FLicc` to separate gear impact from information on stock size structure. :contentReference[oaicite:6]{index=6}
+where $F_j$ is the apical fishing mortality for gear $j$, $sel_{ijk}$ is the selectivity component at length for gear $j$, and $w_k$ are mixture weights when multiple selectivity components are used. This is the key decomposition that allows `FLicc` to separate gear impact from information on stock size structure. :contentReference[oaicite:6]{index=6}
 
 ---
 
 ## Natural mortality at length
 
-`FLicc` supports alternative formulations for natural mortality as a function of length, \(M(l)\), allowing users to explore different assumptions about size-dependent mortality.
+`FLicc` supports alternative formulations for natural mortality as a function of length, $M(l)$, allowing users to explore different assumptions about size-dependent mortality.
 
-Let \(M_{ref}\) be natural mortality at a reference length \(l_{ref}\). The following options are supported:
+Let $M_{ref}$ be natural mortality at a reference length $l_{ref}$. The following options are supported:
 
 ---
 
@@ -109,7 +109,7 @@ This simple formulation captures the general expectation that smaller individual
 
 **Lorenzen (2000)**
 
-Natural mortality scales with body weight \(W(l)\), typically approximated from a length–weight relationship:
+Natural mortality scales with body weight $W(l)$, typically approximated from a length–weight relationship:
 
 $$
 M(l) = M_{ref} \left(\frac{W(l)}{W(l_{ref})}\right)^{-0.288}
@@ -127,7 +127,7 @@ This formulation implies a smooth decline in mortality with increasing size and 
 
 **Gislason et al. (2010)**
 
-Natural mortality is modelled as a function of length and asymptotic length \(L_\infty\):
+Natural mortality is modelled as a function of length and asymptotic length $L_\infty$:
 
 $$
 \log M(l) = -0.55 - 1.61 \log l + 1.44 \log L_\infty + \log k
@@ -135,7 +135,7 @@ $$
 
 
 
-where \(l\) is length, \(L_\infty\) is asymptotic length, and \(k\) is the von Bertalanffy growth coefficient.
+where $l$ is length, $L_\infty$ is asymptotic length, and $k$ is the von Bertalanffy growth coefficient.
 
 This formulation captures empirical scaling relationships across species and implies that natural mortality decreases with size but increases with growth rate and maximum size.
 
@@ -220,19 +220,19 @@ A second area of extension in `FLicc` is the development of length-based indicat
 
 ### LBIspr concept
 
-The idea behind `LBIspr` is to compare the observed proportion of “large” fish to the proportion expected under a target SPR level, in close analogy to age-based indicators defined relative to \(F_{MSY}\). Griffiths et al. defined the age-based indicator \(ABI_{MSY}\) as:
+The idea behind `LBIspr` is to compare the observed proportion of “large” fish to the proportion expected under a target SPR level, in close analogy to age-based indicators defined relative to $F_{MSY}$. Griffiths et al. defined the age-based indicator $ABI_{MSY}$ as:
 
 $$
 ABI_{MSY,t} = \frac{P_t}{P_{MSY}}
 $$
 
-where \(P_t\) is the proportion of fish above a reference age in year \(t\), and \(P_{MSY}\) is the corresponding equilibrium proportion above that threshold under \(F_{MSY}\). Their results showed that \(ABI_{MSY}\) tracked exploitation pressure, was negatively related to \(F/F_{MSY}\), and had useful classification skill relative to \(B/B_{MSY}\). 
+where $P_t$ is the proportion of fish above a reference age in year $t$, and $P_{MSY}$ is the corresponding equilibrium proportion above that threshold under $F_{MSY}$. Their results showed that $ABI_{MSY}$ tracked exploitation pressure, was negatively related to $F/F_{MSY}$, and had useful classification skill relative to $B/B_{MSY}$. 
 
-`LBIspr` uses the same logic in a length-based setting. Rather than defining the reference threshold from age structure at \(F_{MSY}\), the threshold is defined from the equilibrium length structure under a chosen SPR target, for example SPR40. Let:
+`LBIspr` uses the same logic in a length-based setting. Rather than defining the reference threshold from age structure at $F_{MSY}$, the threshold is defined from the equilibrium length structure under a chosen SPR target, for example SPR40. Let:
 
-- \(L_{SPRx}\) be the length threshold associated with the target SPR level,
-- \(P_t(L \ge L_{SPRx})\) be the observed proportion of fish above that threshold,
-- \(P_{SPRx}\) be the expected equilibrium proportion above that threshold under the target SPR level.
+- $(L_{SPRx}$ be the length threshold associated with the target SPR level,
+- $(P_t(L \ge L_{SPRx})$ be the observed proportion of fish above that threshold,
+- $(P_{SPRx}$ be the expected equilibrium proportion above that threshold under the target SPR level.
 
 Then a simple length-based index can be written as:
 
@@ -244,7 +244,7 @@ Values below 1 indicate fewer large fish than expected under the target structur
 
 ### Conceptual link to Griffiths et al. and Goodyear
 
-This idea builds directly on the equilibrium-reference concept of \(ABI_{MSY}\): observed structure is compared to expected structure under a management reference point. 
+This idea builds directly on the equilibrium-reference concept of $ABI_{MSY}$: observed structure is compared to expected structure under a management reference point. 
 
 It also connects to earlier conceptual work by Goodyear, who proposed NZ50 as a way to monitor the frequency of large individuals in catches. NZ50 is the smallest sample size required for a fish at or above a threshold size to appear in 50% of random samples. He showed that:
 
@@ -252,7 +252,7 @@ $$
 NZ50 = \frac{\log(0.5)}{\log(p)}
 $$
 
-where \(p\) is the cumulative probability at the threshold. Goodyear argued that such threshold-based metrics can track the relative abundance of large fish, are independent of the overall shape of the catch-length distribution, and are sensitive to changes in fishing mortality when catch removes multiple ages in long-lived species. He also suggested that explicit treatment of the largest fish in the catch would be a useful adjunct to standard reference points such as \(B/B_{MSY}\) and \(F/F_{MSY}\). 
+where $p$ is the cumulative probability at the threshold. Goodyear argued that such threshold-based metrics can track the relative abundance of large fish, are independent of the overall shape of the catch-length distribution, and are sensitive to changes in fishing mortality when catch removes multiple ages in long-lived species. He also suggested that explicit treatment of the largest fish in the catch would be a useful adjunct to standard reference points such as $B/B_{MSY}$ and $F/F_{MSY}$. 
 
 In that sense, `LBIspr` sits naturally between these two lines of work:
 
@@ -335,6 +335,7 @@ For a full reproducible example, see the test script:
 ## Short workflow example
 
 ```r
+
 library(FLicc)
 
 data("alfonsino")
@@ -382,8 +383,6 @@ plot_len(fit,by_gear = T,year=2020:2024)
 # Plot Selectivity by gear
 plot_sel(fit)
 
-
-
 # Option to create FLStockLen
 stkl <- flicc_stklen(fit)
 # Plot, e.g., fishery selectivity weighted by the ratio of catches
@@ -396,22 +395,23 @@ eqstk@refpts
 plot_eqcurves(eqstk)
 
 
+
+# LBIspr indicator
+plot_LBIspr(fit,thresh = 0.75)
+
 # Status
 plot_spr(fit)
 plot_lbfao(fit)
-# LBIspr
-plot_LBIspr(fit,thresh = 0.75)
 
 # Convert to simplified FLStockR
-stk <- flicc2FLStockR(fit,stklen)
+stk <- flicc2FLStockR(fit)
 stk@refpts
+# Plot length-based assessment status
 plot_LBAdvice(stk)
-plot_LBAdvice(stk)
+# relative to MSY proxy
+stkr <- flicc2FLStockR(fit,rel=T)
+plot_LBAdvice(stkr)
 
-# Equilibrium dynamics
-eqstk <- eqstklen(fit,s=0.75)
-eqstk@refpts
-plot_eqcurves(eqstk)
 
 
 ```

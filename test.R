@@ -46,8 +46,6 @@ plot_len(fit,by_gear = T,year=2020:2024)
 # Plot Selectivity by gear
 plot_sel(fit)
 
-
-
 # Option to create FLStockLen
 stkl <- flicc_stklen(fit)
 # Plot, e.g., fishery selectivity weighted by the ratio of catches
@@ -60,20 +58,23 @@ eqstk@refpts
 plot_eqcurves(eqstk)
 
 
+
+# LBIspr indicator
+plot_LBIspr(fit,thresh = 0.75)
+
 # Status
 plot_spr(fit)
 plot_lbfao(fit)
-# LBIspr
-plot_LBIspr(fit,thresh = 0.75)
 
 # Convert to simplified FLStockR
-stk <- flicc2FLStockR(fit,stklen)
+stk <- flicc2FLStockR(fit)
 stk@refpts
 plot_LBAdvice(stk)
-plot_LBAdvice(stk)
+# relative to MSY proxy
+stkr <- flicc2FLStockR(fit,rel=T)
+plot_LBAdvice(stkr)
 
-# Equilibrium dynamics
-eqstk <- eqstklen(fit,s=0.75)
-eqstk@refpts
-plot_eqcurves(eqstk)
+
+# LBIspr indicator
+plot_LBIspr(fit,thresh = 0.75)
 
