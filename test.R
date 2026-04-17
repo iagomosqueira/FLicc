@@ -101,5 +101,6 @@ plot_LBAdvice(stk)
 stkr <- flicc2FLStockR(fit,rel=T)
 plot_LBAdvice(stkr)
 
+plot_LBAdvice(stkr,panels=1)+ylim(0,1.5)
 
 

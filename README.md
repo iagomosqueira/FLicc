@@ -436,7 +436,8 @@ plot_LBAdvice(stk)
 # relative to MSY proxy
 stkr <- flicc2FLStockR(fit,rel=T)
 plot_LBAdvice(stkr)
-
+# Show one panel SPR only
+plot_LBAdvice(stkr,panels=1)+ylim(0,1.5)
 
 
 
