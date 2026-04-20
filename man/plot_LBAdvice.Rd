@@ -9,7 +9,7 @@ plot_LBAdvice(
   panels = c(1, 2),
   plotrefs = TRUE,
   probs = c(0.05, 0.2, 0.5, 0.8, 0.95),
-  year_break = 2,
+  by_year = 2,
   colour = "dodgerblue",
   ncol = NULL,
   label.size = 2.5,
@@ -31,7 +31,7 @@ plot_LBAdvice(
 \item{probs}{Numeric vector of probabilities used for plotting quantile
 intervals. The default is \code{c(0.05, 0.2, 0.50, 0.8, 0.95)}.}
 
-\item{year_break}{Integer spacing between x-axis year labels.}
+\item{by_year}{Integer spacing between x-axis year labels.}
 
 \item{colour}{Fill colour used for uncertainty intervals when plotting a
 single stock. The default is \code{"dodgerblue"}.}

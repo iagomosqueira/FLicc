@@ -7,6 +7,7 @@
 plot_spr(
   fit,
   title = NULL,
+  by_year = 2,
   line_colour = "black",
   point_colour = "black",
   linewidth = 0.6,
@@ -19,7 +20,7 @@ plot_spr(
 )
 }
 \arguments{
-\item{fit}{A fitted \code{flicc_tmb_fit} object.}
+\item{fit}{A fitted \code{flicc_tmb_fit} object, list of fits or \emph{FLQuants}.}
 
 \item{title}{Optional plot title.}
 

@@ -474,3 +474,59 @@ LLflicc <- function(object, ...) {
     class = "logLik"
   )
 }
+
+
+
+#' Rescale length frequencies to effective sample size by gear
+#'
+#' Rescales an \code{FLQuant} of length frequencies so that, within each
+#' year-gear-iter combination, the total over length equals a user-supplied
+#' effective sample size (ESS). This is useful for composition-based likelihoods
+#' such as multinomial or Dirichlet-multinomial, where raw sample sizes are not
+#' intended to determine the weight of the fit.
+#'
+#' @param lfd An \code{FLQuant} of length frequencies with at least dimensions
+#'   \code{len}, \code{year}, \code{unit}, and \code{iter}.
+#' @param ess.g Numeric scalar or vector of effective sample sizes by gear. If a
+#'   scalar is supplied, it is recycled across gears. If a vector is supplied,
+#'   its length must match the number of gears in the \code{unit} dimension.
+#'
+#' @return An \code{FLQuant} with the same dimensions as \code{lfd}, but scaled
+#'   so that totals over \code{len} equal the requested ESS for each gear.
+#'
+#' @examples
+#' \dontrun{
+#' lfd_ess <- lfdess(lfd, ess.g = c(Trawl = 150, Gillnet = 100))
+#' }
+#'
+#' @export
+lfdess <- function(lfd, ess.g=100) {
+  if (!inherits(lfd, "FLQuants")) {
+    stop("lfd must be an FLQuant")
+  }
+
+  dn <- dimnames(lfd[[1]])
+  gears <- dn$unit
+  years <- dn$year
+  seasons <- dn$season
+  areas <- dn$area
+  iters <- dn$iter
+
+  ng <- length(gears)
+
+  if (length(ess.g) == 1 && length(lfd)>1) {
+    ess.g <- rep(as.numeric(ess.g), ng)
+    names(ess.g) <- gears
+  } else {
+    ess.g <- as.numeric(ess.g)
+
+  }
+
+  out <- Map(function(x,y){
+    res <- x%/%apply(x,2:6,sum,na.rm=T)
+    res*y
+  },x=lfd,y=ess.g)
+
+
+  out
+}

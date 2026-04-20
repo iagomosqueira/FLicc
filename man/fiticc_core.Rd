@@ -9,7 +9,7 @@ fiticc_core(
   stklen,
   sel_fun = c("logistic", "normal", "dsnormal"),
   catch_by_gear,
-  settings = list(CVL = 0.1, GL = 50, catch.sd = 0.05, prior_sigmaF = c(log(0.7), 0.1,
+  settings = list(CVL = 0.1, GL = 50, catch.sd = 0.05, prior_sigmaF = c(log(0.5), 0.3,
     1)),
   years = NULL,
   iter = 1,

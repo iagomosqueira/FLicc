@@ -18,7 +18,7 @@ plot_LBIspr(
   line_width = 0.8,
   smooth_width = 1.1,
   colours = NULL,
-  year_break = 2,
+  by_year = 2,
   point_pch = 15,
   point_size = 1.8
 )
@@ -60,7 +60,7 @@ panel.}
 colours are assigned automatically using the same generic palette logic as
 \code{plot_lfd()}.}
 
-\item{year_break}{Integer spacing between x-axis year labels.}
+\item{by_year}{Integer spacing between x-axis year labels.}
 
 \item{point_pch}{Plotting symbol for annual observations.}
 

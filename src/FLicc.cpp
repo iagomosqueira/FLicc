@@ -165,6 +165,7 @@ Type objective_function<Type>::operator() ()
 
   DATA_MATRIX(catch_wt);
   DATA_SCALAR(catch_sd);
+  DATA_INTEGER(obs_model);   // 1 = nb, 2 = multinom, 3 = dirichlet
 
   DATA_IVECTOR(sel_type);
   DATA_IVECTOR(sm_start);
@@ -363,17 +364,10 @@ Type objective_function<Type>::operator() ()
 
 
     // Likelihood function
+
+    // Within-gear predicted proportions
     for(int g = 0; g < ngear; g++) {
       for(int l = 0; l < nlen; l++) {
-
-        if(pred_gear(g) > Type(0)) {
-          mu(l,g) = obs_gear(g) * Cpred(l,g) / pred_gear(g) + Type(1e-12);
-        } else {
-          mu(l,g) = Type(1e-12);
-        }
-
-        nll -= dnbinom_phi(obs(l,y,g), mu(l,g), phi, 1);
-
         if(pred_gear(g) > Type(0)) {
           plen(l,y,g) = Cpred(l,g) / pred_gear(g);
         } else {
@@ -381,6 +375,70 @@ Type objective_function<Type>::operator() ()
         }
       }
     }
+
+    // Observation likelihood
+    if(obs_model == 1) {
+      // Negative binomial on ESS-scaled counts
+      for(int g = 0; g < ngear; g++) {
+        for(int l = 0; l < nlen; l++) {
+
+          if(pred_gear(g) > Type(0)) {
+            mu(l,g) = obs_gear(g) * Cpred(l,g) / pred_gear(g) + Type(1e-12);
+          } else {
+            mu(l,g) = Type(1e-12);
+          }
+
+          nll -= dnbinom_phi(obs(l,y,g), mu(l,g), phi, 1);
+        }
+      }
+
+    } else if(obs_model == 2) {
+      // Multinomial on within-gear compositions
+      // obs is already ESS-scaled by lfdess()
+      for(int g = 0; g < ngear; g++) {
+        if(obs_gear(g) > Type(0) && pred_gear(g) > Type(0)) {
+          for(int l = 0; l < nlen; l++) {
+            Type p_pred = Cpred(l,g) / pred_gear(g);
+            if(p_pred < Type(1e-12)) p_pred = Type(1e-12);
+
+            nll -= obs(l,y,g) * log(p_pred);
+          }
+        }
+      }
+
+    } else if(obs_model == 3) {
+      // Dirichlet-multinomial on within-gear compositions
+      // Here obs_gear(g) acts as fixed ESS / precision
+      for(int g = 0; g < ngear; g++) {
+        if(obs_gear(g) > Type(0) && pred_gear(g) > Type(0)) {
+
+          Type alpha0 = obs_gear(g);
+
+          vector<Type> alpha_l(nlen);
+          for(int l = 0; l < nlen; l++) {
+            Type p_pred = Cpred(l,g) / pred_gear(g);
+            if(p_pred < Type(1e-12)) p_pred = Type(1e-12);
+            alpha_l(l) = alpha0 * p_pred;
+          }
+
+          nll -= lgamma(alpha0);
+          nll += lgamma(obs_gear(g) + alpha0);
+
+          for(int l = 0; l < nlen; l++) {
+            Type yobs = obs(l,y,g);
+            Type a = alpha_l(l);
+
+            nll -= lgamma(yobs + a);
+            nll += lgamma(a);
+          }
+        }
+      }
+
+    } else {
+      error("Unknown obs_model");
+    }
+
+
   }
 
   // Penalty on random walk F
@@ -442,7 +500,6 @@ Type objective_function<Type>::operator() ()
   ADREPORT(log_Linf);
   ADREPORT(log_Galpha);
   ADREPORT(log_Mk);
-  ADREPORT(log_phi);
   ADREPORT(log_sigmaF);
   ADREPORT(log_spr_y);
 

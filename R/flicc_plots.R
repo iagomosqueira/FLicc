@@ -7,7 +7,7 @@
 #' SPR values are taken from `fit$report$spr`, which is expected to be an
 #' `FLQuant` indexed by year.
 #'
-#' @param fit A fitted `flicc_tmb_fit` object.
+#' @param fit A fitted `flicc_tmb_fit` object, list of fits or *FLQuants*.
 #' @param title Optional plot title.
 #' @param line_colour Colour of the SPR time-series line.
 #' @param point_colour Colour of the SPR points.
@@ -45,6 +45,7 @@
 #' @export
 plot_spr <- function(fit,
                      title = NULL,
+                     by_year = 2,
                      line_colour = "black",
                      point_colour = "black",
                      linewidth = 0.6,
@@ -55,15 +56,35 @@ plot_spr <- function(fit,
                      ref_colours = c("darkgreen", "orange", "red"),
                      ref_linetype = 2) {
 
+
+
+  if (inherits(fit, "FLQuants")){
+    if(is.null(names(fit))) names <- paste0("run",1:length(fit))
+    res <- FLQuants(lapply(fit,function(x){
+        FLQuant(x,quant="all")
+    }))
+  }
+
+  if (inherits(fit, "list")&&inherits(fit[[1]], "flicc_tmb_fit") ){
+    if(is.null(names(fit))) names <- paste0("run",1:length(fit))
+    res <- FLQuants(lapply(fit,function(x){
+      x <- x$report$spr
+      FLQuant(x,quant="all")
+    }))
+  }
+
+  if (inherits(fit, "flicc_tmb_fit")){
+      res <- fit$report$spr
+    }
+
   if (!requireNamespace("ggplot2", quietly = TRUE)) {
     stop("Package 'ggplot2' is required.")
   }
 
-  if (is.null(fit$report$spr)) {
-    stop("fit$report$spr not found.")
-  }
+  df <- as.data.frame(res)
 
-  df <- as.data.frame(fit$report$spr)
+  yrs <- sort(unique(df$year))
+  yr_breaks <- seq(min(yrs), max(yrs), by = by_year)
 
   if (!all(c("year", "data") %in% names(df))) {
     stop("Could not coerce fit$report$spr to a data.frame with columns 'year' and 'data'.")
@@ -80,16 +101,27 @@ plot_spr <- function(fit,
     title <- "Spawning potential ratio"
   }
 
-  p <- ggplot2::ggplot(df, ggplot2::aes(x = year_num, y = data)) +
-    ggplot2::geom_line(
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = year_num, y = data))
+  if(inherits(res, "FLQuant")){
+   p <- p+ ggplot2::geom_line(
       colour = line_colour,
       linewidth = linewidth
     ) +
     ggplot2::geom_point(
       colour = point_colour,
       size = point_size
+    )
+  } else {
+    p <- p+ ggplot2::geom_line(
+      aes(colour = qname),
+      linewidth = linewidth
     ) +
-    ggplot2::scale_x_continuous(breaks = df$year_num) +
+      ggplot2::geom_point(
+        aes(colour = qname),
+        size = point_size
+      )
+   }
+  p <- p+ ggplot2::scale_x_continuous(breaks = yr_breaks) +
     ggplot2::coord_cartesian(ylim = c(0, ymax)) +
     ggplot2::labs(
       x = "Year",
@@ -98,6 +130,7 @@ plot_spr <- function(fit,
     ) +
     ggplot2::theme_bw() +
     ggplot2::theme(
+      legend.title = ggplot2::element_blank(),
       panel.grid.minor = ggplot2::element_blank(),
       plot.title = ggplot2::element_text(hjust = 0.5)
     )
@@ -400,7 +433,7 @@ plot_len <- function(fit,
 #' @param colours Optional named character vector of colours. If \code{NULL},
 #'   colours are assigned automatically using the same generic palette logic as
 #'   \code{plot_lfd()}.
-#' @param year_break Integer spacing between x-axis year labels.
+#' @param by_year Integer spacing between x-axis year labels.
 #' @param point_pch Plotting symbol for annual observations.
 #' @param point_size Point size for annual observations.
 #'
@@ -419,7 +452,7 @@ plot_LBIspr <- function(fit, gear = NULL, spr = 40, thresh = 0.8,
                         smoother = TRUE, scale_sel = TRUE,
                         facets = TRUE, year_angle = 90,
                         line_width = 0.8, smooth_width = 1.1,
-                        colours = NULL, year_break = 2,
+                        colours = NULL, by_year = 2,
                         point_pch = 15, point_size = 1.8) {
 
   if (!requireNamespace("ggplot2", quietly = TRUE)) {
@@ -472,7 +505,7 @@ plot_LBIspr <- function(fit, gear = NULL, spr = 40, thresh = 0.8,
   }
 
   yrs <- sort(unique(dfi$year))
-  yr_breaks <- seq(min(yrs), max(yrs), by = year_break)
+  yr_breaks <- seq(min(yrs), max(yrs), by = by_year)
 
   p <- ggplot2::ggplot(
     dfi,
@@ -1227,7 +1260,7 @@ plot_lbfao <- function(fit,
 #'   \code{object@refpts} are added to the plot.
 #' @param probs Numeric vector of probabilities used for plotting quantile
 #'   intervals. The default is \code{c(0.05, 0.2, 0.50, 0.8, 0.95)}.
-#' @param year_break Integer spacing between x-axis year labels.
+#' @param by_year Integer spacing between x-axis year labels.
 #' @param colour Fill colour used for uncertainty intervals when plotting a
 #'   single stock. The default is \code{"dodgerblue"}.
 #' @param ncol Number of columns in the facet layout. Currently set internally
@@ -1277,7 +1310,7 @@ plot_lbfao <- function(fit,
 #' plot_LBAdvice(stkr, panels = 2, plotrefs = FALSE)
 #'
 #' @export
-plot_LBAdvice <- function(object,panels=c(1,2),plotrefs=TRUE,probs=c(0.05,0.2,0.50,0.8,0.95),year_break = 2,colour="dodgerblue",ncol=NULL,label.size=2.5,ssbQ = 1,recQ=1){
+plot_LBAdvice <- function(object,panels=c(1,2),plotrefs=TRUE,probs=c(0.05,0.2,0.50,0.8,0.95),by_year = 2,colour="dodgerblue",ncol=NULL,label.size=2.5,ssbQ = 1,recQ=1){
 
   old_lifecycle <- getOption("lifecycle_verbosity")
   options(lifecycle_verbosity = "quiet")
@@ -1407,7 +1440,7 @@ plot_LBAdvice <- function(object,panels=c(1,2),plotrefs=TRUE,probs=c(0.05,0.2,0.
     p = p +ggp
   }
 
-  yr_breaks <- rev(seq(max(year),min(year),-year_break))
+  yr_breaks <- rev(seq(max(year),min(year),-by_year))
   p <-  p+ggplot2::scale_x_continuous(breaks = yr_breaks)
   return(p)
 }

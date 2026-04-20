@@ -113,6 +113,17 @@ data_tmb_flicc <- function(lfd, stklen, sel_fun, catch_by_gear,
 
   catch_sd <- if (!is.null(settings$catch.sd)) as.numeric(settings$catch.sd) else 0.05
 
+  # observation model
+  obs_model <- if (!is.null(settings$obs_model)) settings$obs_model else "nb"
+
+  obs_model_code <- switch(obs_model,
+                           nb = 1L,
+                           mn = 2L,
+                           dm = 3L,
+                           stop("Supported obs_model options are 'nb', 'mn', 'dm'")
+  )
+
+
   # quadrature
   gl <- statmod::gauss.quad(settings$GL, kind = "laguerre")
   node <- as.numeric(gl$nodes)
@@ -160,6 +171,7 @@ data_tmb_flicc <- function(lfd, stklen, sel_fun, catch_by_gear,
     mat        = unname(mat_mat),
     catch_wt   = unname(catch_wt),
     catch_sd   = catch_sd,
+    obs_model  = as.integer(obs_model_code),
     sel_type   = as.integer(sel_type),
     sm_start   = as.integer(sm_start),
     sm_n       = as.integer(sm_n),
@@ -338,7 +350,7 @@ fiticc_core <- function(lfd, stklen,
                        CVL = 0.1,
                        GL = 50,
                        catch.sd = 0.05,
-                       prior_sigmaF = c(log(0.7), 0.1, 1)
+                       prior_sigmaF = c(log(0.5), 0.3, 1)
                      ),
                      years = NULL,
                      iter = 1,
@@ -356,12 +368,12 @@ fiticc_core <- function(lfd, stklen,
     CVL = 0.1,
     GL = 50,
     catch.sd = 0.05,
-    prior_sigmaF = c(log(0.3), 0.3, 1),
+    obs_model = "nb",
+    prior_sigmaF = c(log(0.5), 0.3, 1),
     linf.sd = NULL,
     Mk.sd = NULL,
     CVL.sd = NULL
   )
-
   # ---- merge user settings with defaults ----
   if (is.null(settings)) settings <- list()
 
@@ -432,6 +444,10 @@ fiticc_core <- function(lfd, stklen,
   }
   if (is.null(settings$CVL.sd)) {
     map$log_Galpha <- factor(NA)
+  }
+  # NEW: phi only relevant for NB
+  if (settings$obs_model %in% c("mn", "dm")) {
+    map$log_phi <- factor(NA)
   }
   if (!is.null(fix_res$map_Sm)) {
     map$Sm <- fix_res$map_Sm
@@ -511,13 +527,37 @@ fiticc_core <- function(lfd, stklen,
 #'   containing stock and life-history information for the same years and
 #'   iterations as \code{lfd}.
 #' @param sel_fun Character vector giving the selectivity function for each
-#'   gear. Supported options include \code{"logistic"}, \code{"normal"}, and
+#'   gear. Supported options are \code{"logistic"}, \code{"normal"}, and
 #'   \code{"dsnormal"}.
 #' @param catch_by_gear Relative catch by gear. Can be supplied as a numeric
 #'   vector or as an \code{FLQuants} object.
-#' @param settings A named list of model settings. Recognized elements are
-#'   \code{CVL}, \code{GL}, \code{catch.sd}, and \code{prior_sigmaF}. Missing
-#'   elements are filled from internal defaults.
+#' @param settings A named list of model settings. Recognized elements are:
+#'   \describe{
+#'     \item{\code{CVL}}{Coefficient of variation in asymptotic length.
+#'       Default is \code{0.1}.}
+#'     \item{\code{GL}}{Number of Gauss-Laguerre quadrature points used in the
+#'       fishblicc-style population recursion. Default is \code{30}.}
+#'     \item{\code{catch.sd}}{Log-scale standard deviation controlling the
+#'       strength of the penalty linking predicted gear proportions to
+#'       \code{catch_by_gear}. Smaller values imply stronger anchoring.
+#'       Default is \code{0.05}.}
+#'     \item{\code{obs_model}}{Observation model. Supported options are
+#'       \code{"nb"} for negative binomial counts, \code{"mn"} for multinomial
+#'       composition likelihood, and \code{"dm"} for Dirichlet-multinomial
+#'       composition likelihood. Default is \code{"nb"}.}
+#'     \item{\code{prior_sigmaF}}{Optional prior specification for the random
+#'       walk standard deviation of fishing mortality in multi-year fits.}
+#'     \item{\code{linf.sd}}{Optional log-scale prior standard deviation for
+#'       \code{Linf}. If supplied, \code{Linf} is estimated with a penalty;
+#'       otherwise it is fixed.}
+#'     \item{\code{Mk.sd}}{Optional log-scale prior standard deviation for
+#'       \code{Mk}. If supplied, \code{Mk} is estimated with a penalty;
+#'       otherwise it is fixed.}
+#'     \item{\code{CVL.sd}}{Optional log-scale prior standard deviation for
+#'       \code{CVL}. If supplied, \code{CVL} is estimated with a penalty;
+#'       otherwise it is fixed.}
+#'   }
+#'   Missing elements are filled from internal defaults.
 #' @param years Optional numeric vector of years to include in the fit. If
 #'   \code{NULL}, all years in \code{lfd} are used.
 #' @param iter Integer giving the iteration to fit. Iterations are subset in R
@@ -540,6 +580,22 @@ fiticc_core <- function(lfd, stklen,
 #' objective, or a non-positive-definite Hessian, the model is refitted once
 #' with \code{settings$GL} replaced by \code{refit_GL}.
 #'
+#' The \code{obs_model} setting controls how observed and predicted
+#' length-frequency distributions are compared:
+#' \itemize{
+#'   \item \code{"nb"} uses a negative binomial likelihood on counts and
+#'     estimates an observation dispersion parameter \code{phi}.
+#'   \item \code{"mn"} uses a multinomial likelihood on within-gear proportions.
+#'   \item \code{"dm"} uses a Dirichlet-multinomial likelihood on within-gear
+#'     proportions, allowing extra-multinomial variation.
+#' }
+#'
+#' For \code{"mn"} and \code{"dm"}, the recommended workflow is to preprocess
+#' raw length frequencies with \code{\link{lfdess()}} so that the total
+#' within each gear corresponds to a chosen effective sample size (ESS). In this
+#' setup, the likelihood is driven by composition shape within gear, while
+#' \code{catch_by_gear} and \code{catch.sd} control between-gear scaling.
+#'
 #' This default behaviour is intended to provide a good balance between speed
 #' and stability for routine use, while still exposing the core one-pass fit
 #' through \code{fiticc_core()} for development and debugging.
@@ -549,7 +605,7 @@ fiticc_core <- function(lfd, stklen,
 #' \describe{
 #'   \item{\code{opt}}{The \code{nlminb()} optimizer output.}
 #'   \item{\code{obj}}{The \code{TMB::MakeADFun()} object.}
-#'   \item{\code{rep}}{The \code{TMB::sdreport()} result.}
+#'   \item{\code{rep}}{The \code{TMB::sdreport()} result, when available.}
 #'   \item{\code{par}}{A data frame of estimated fixed effects and standard
 #'   errors.}
 #'   \item{\code{report}}{Reported model quantities, optionally converted to FLR
@@ -560,19 +616,43 @@ fiticc_core <- function(lfd, stklen,
 #'   enabled and used.}
 #' }
 #'
-#' @seealso \code{\link{fiticc_core}}, \code{\link{need_refit_flicc}}
+#' @seealso \code{\link{fiticc_core}}, \code{\link{need_refit_flicc}},
+#'   \code{\link{lfdess}}
 #'
 #' @examples
 #' data(alfonsino)
 #'
-#' fit <- fiticc(
+#' # Negative binomial count likelihood
+#' fit_nb <- fiticc(
 #'   lfd_alfonsino,
 #'   stklen_alfonsino,
 #'   sel_fun = c("dsnormal", "logistic"),
-#'   catch_by_gear = c(0.7, 0.3)
+#'   catch_by_gear = c(0.7, 0.3),
+#'   settings = list(obs_model = "nb")
 #' )
 #'
-#' fit$safe_fit
+#' # Multinomial composition likelihood using ESS-scaled data
+#' lfd_ess <- lfdess(lfd_alfonsino, ess.g = c(200, 150))
+#'
+#' fit_mn <- fiticc(
+#'   lfd_ess,
+#'   stklen_alfonsino,
+#'   sel_fun = c("dsnormal", "logistic"),
+#'   catch_by_gear = c(0.7, 0.3),
+#'   settings = list(obs_model = "mn")
+#' )
+#'
+#' # Dirichlet-multinomial composition likelihood
+#' fit_dm <- fiticc(
+#'   lfd_ess,
+#'   stklen_alfonsino,
+#'   sel_fun = c("dsnormal", "logistic"),
+#'   catch_by_gear = c(0.7, 0.3),
+#'   settings = list(obs_model = "dm")
+#' )
+#'
+#' fit_nb$safe_fit
+#' @export
 #' @export
 fiticc <- function(lfd, stklen,
                    sel_fun = c("logistic", "normal", "dsnormal"),
@@ -581,7 +661,8 @@ fiticc <- function(lfd, stklen,
                      CVL = 0.1,
                      GL = 30,
                      catch.sd = 0.05,
-                     prior_sigmaF = c(log(0.7), 0.1, 1),
+                     obs_model = "nb",
+                     prior_sigmaF = c(log(0.5), 0.3, 1),
                      linf.sd = NULL,
                      Mk.sd = NULL,
                      CVL.sd = NULL
