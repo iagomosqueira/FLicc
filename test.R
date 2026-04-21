@@ -130,15 +130,14 @@ plot_spr(list(all.yr=fit,each.y=fit.y))
 #><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>
 #> LBSRP: pop_model = "gtg", obs_model = "mn" # multinomial (Default)
 #> fishblicc: pop_model = "gamma", obs_model = "nb" # negative bionomial
-#> Addtional option for obs_model = "dm" # Dirichlet-multinomial
 
-#> Note ESS is based on the number of observations.
+#> Note ESS is based on the number of observations (like in LBSRP,fishblicc).
 #> This can be adjusted, for example, by:
 #>
 lfd.ess <- lfdess(lfd,ess.g=c(Trawl=250,Gillnet=350))
 plot_lfd(lfd.ess)
 
-# Slowest
+# Slower
 system.time({
 fit.gamma.nb <- fiticc(lfd.ess, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear =c(0.7,0.3),
                 settings=list(pop_model="gamma",obs_model="nb"))
@@ -150,17 +149,8 @@ system.time({
                    settings=list(pop_model="gtg",obs_model="mn"))
 })
 
-# now with Dirichlet-multinomial - STILL NEEDS TESTING!!!
-system.time({
-  fit.gtg.dm <- fiticc(lfd.ess, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear =c(0.7,0.3),
-                       settings=list(pop_model="gtg",obs_model="dm"))
-})
-
 # compare
 plot_spr(list(gamma.nb=fit.gamma.nb,
-              gtg.mn=fit.gtg.mn,
-              gtg.dm=fit.gtg.dm))
-
-
+              gtg.mn=fit.gtg.mn))
 
 
