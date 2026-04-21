@@ -115,7 +115,11 @@ plot_LBAdvice(stk)
 stkr <- flicc2FLStockR(fit,rel=T)
 plot_LBAdvice(stkr,panel=1)+ylim(0.,1.5)
 
+
+#><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>
 # Fit model each year separately (LBSPR-like)
+#><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>
+
 fit.y <- fiticc(lfd, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear =c(0.7,0.3),
               settings=list(prior_sigmaF = c(log(0.5), 0.3,1)),by_year=TRUE)
 
