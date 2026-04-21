@@ -104,7 +104,7 @@ eqstklen <- function(fit, nyears = 1,
   }
   attr(stk,"lhpar") <- lhpar
   attr(stk,"selpars") <-fit$report$selpars
-  attr(stk,"selpars") <- fit$report$pars
+  attr(stk,"pars") <- fit$report$pars
   attr(stk,"refpts") <-   refpts
   return(stk)
 }

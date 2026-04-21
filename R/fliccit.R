@@ -1,3 +1,33 @@
+#' Extract FLicc population model name
+#'
+#' @param fit A fitted \code{"flicc_tmb_fit"} object.
+#'
+#' @return Character string, one of \code{"gamma"} or \code{"gtg"}.
+#' @export
+pop_model_flicc <- function(fit) {
+
+  if (!is.null(fit$pop_model)) {
+    return(fit$pop_model)
+  }
+
+  if (!is.null(fit$settings$pop_model)) {
+    return(fit$settings$pop_model)
+  }
+
+  code <- fit$tmb_data$pop_model
+
+  if (is.null(code)) {
+    return("gamma")
+  }
+
+  switch(as.character(code),
+         "1" = "gamma",
+         "2" = "gtg",
+         stop("Unknown pop_model code in fit$tmb_data$pop_model")
+  )
+}
+
+
 #' FLicc helper functions for equilibrium numbers-, catch-, and per-recruit analyses
 #'
 #' Helper functions for extracting fitted reference quantities from a
@@ -114,6 +144,80 @@ n_f_flicc <- function(node, quad_wt, Len, Zki, Galpha, Gbeta,
   }
 }
 
+
+#' Equilibrium numbers-at-length per recruit using GTG (LBSPR) recursion
+#'
+#' @param Len Numeric vector of lower length bin boundaries.
+#' @param gtgLinfs Numeric vector of Linf values for growth-type groups.
+#' @param ZKLMat Numeric matrix of total mortality over K, dimension
+#'   \code{(length(Len)+1) x length(gtgLinfs)}.
+#' @param recP Numeric vector of recruitment proportions for each GTG.
+#' @param return_surv Logical. If \code{TRUE}, also returns boundary survival.
+#'
+#' @return Numeric vector of equilibrium numbers-at-length per recruit, or a
+#'   list when \code{return_surv = TRUE}.
+#'
+#' @export
+n_f_gtg_flicc <- function(Len, gtgLinfs, ZKLMat, recP, return_surv = FALSE) {
+
+  nlen <- length(Len)
+  ngtg <- length(gtgLinfs)
+
+  if (!is.matrix(ZKLMat)) {
+    stop("'ZKLMat' must be a matrix.")
+  }
+  if (nrow(ZKLMat) != (nlen + 1)) {
+    stop("'ZKLMat' must have nlen + 1 rows.")
+  }
+  if (ncol(ZKLMat) != ngtg) {
+    stop("'ZKLMat' must have one column per GTG.")
+  }
+  if (length(recP) != ngtg) {
+    stop("'recP' must have same length as 'gtgLinfs'.")
+  }
+  if (any(ZKLMat <= 0)) {
+    stop("'ZKLMat' must be strictly positive.")
+  }
+
+  # build upper boundary
+  if (nlen > 1) {
+    step_last <- Len[nlen] - Len[nlen - 1]
+  } else {
+    step_last <- 1
+  }
+  LBins <- c(Len, Len[nlen] + step_last)
+
+  NPRFished <- matrix(0, nrow = nlen + 1, ncol = ngtg)
+  NPRFished[1, ] <- recP
+
+  for (g in seq_len(ngtg)) {
+    for (l in 2:(nlen + 1)) {
+      num <- gtgLinfs[g] - LBins[l]
+      den <- gtgLinfs[g] - LBins[l - 1]
+
+      num <- max(num, 1e-12)
+      den <- max(den, 1e-12)
+
+      NPRFished[l, g] <-
+        NPRFished[l - 1, g] * (num / den)^ZKLMat[l - 1, g]
+    }
+  }
+
+  NI <- numeric(nlen)
+  for (l in seq_len(nlen)) {
+    NI[l] <- sum((NPRFished[l, ] - NPRFished[l + 1, ]) / ZKLMat[l, ])
+  }
+
+  if (!return_surv) {
+    return(NI)
+  }
+
+  list(
+    NI = NI,
+    surv = NPRFished
+  )
+}
+
 #' Equilibrium numbers-at-length per recruit from an FLicc fit
 #'
 #' Computes equilibrium numbers-at-length per recruit from a fitted
@@ -202,16 +306,54 @@ nf_from_flicc <- function(fit,
     scale_sel = scale_sel
   )
 
-  res <- n_f_flicc(
-    node = ref$node,
-    quad_wt = ref$quad_wt,
-    Len = ref$Len,
-    Zki = as.numeric(zobj$Z_l) / ref$k,
-    Galpha = ref$Galpha,
-    Gbeta = ref$Gbeta,
-    return_surv = return_surv
-  )
+  pop_model <- pop_model_flicc(fit)
 
+  if (pop_model == "gamma") {
+
+    res <- n_f_flicc(
+      node = ref$node,
+      quad_wt = ref$quad_wt,
+      Len = ref$Len,
+      Zki = as.numeric(zobj$Z_l) / ref$k,
+      Galpha = ref$Galpha,
+      Gbeta = ref$Gbeta,
+      return_surv = return_surv
+    )
+
+  } else if (pop_model == "gtg") {
+
+    td <- fit$tmb_data
+
+    nlen <- length(ref$Len)
+    ngtg <- td$ngtg
+
+    # total mortality on the gtg scale
+    # natural mortality comes from MKMat * yearly Mscaler
+    # fishing mortality enters through zobj$F_l / k
+    Mscale <- as.numeric(apply(td$Mscaler[, tail(seq_len(ncol(td$Mscaler)), nyears), drop = FALSE], 1, mean))
+
+    Fki <- as.numeric(zobj$F_l) / ref$k
+
+    ZKLMat <- matrix(NA_real_, nrow = nlen + 1, ncol = ngtg)
+
+    for (g in seq_len(ngtg)) {
+      for (l in seq_len(nlen)) {
+        ZKLMat[l, g] <- td$MKMat[l, g] * Mscale[l] + Fki[l]
+      }
+      ZKLMat[nlen + 1, g] <- td$MKMat[nlen + 1, g] * Mscale[nlen] + Fki[nlen]
+    }
+
+    res <- n_f_gtg_flicc(
+      Len = ref$Len,
+      gtgLinfs = td$gtgLinfs,
+      ZKLMat = ZKLMat,
+      recP = td$recP,
+      return_surv = return_surv
+    )
+
+  } else {
+    stop("Unsupported pop_model: ", pop_model)
+  }
   NI <- zobj$Z_l
   FLCore::units(NI) <- "1000"
 
@@ -379,7 +521,7 @@ flicc_refpars <- function(fit, nyears = 1, scale_sel = TRUE) {
     }
   }
 
-  list(
+  out <- list(
     year = year,
     Len = Len,
     Mk = Mk,
@@ -387,12 +529,15 @@ flicc_refpars <- function(fit, nyears = 1, scale_sel = TRUE) {
     k = as.numeric(fit$report$lhpar["k"]),
     Sel = Sel,
     wl = wl,
-    Galpha = as.numeric(fit$report$pars["Galpha"]),
-    Gbeta  = as.numeric(fit$report$pars["Gbeta"]),
-    node = as.numeric(fit$report$node),
-    quad_wt = as.numeric(fit$report$quad_wt),
     nyears= 1
   )
+  if(fit$pop_model=="gamma"){
+    out$Galpha = as.numeric(fit$report$pars["Galpha"])
+    out$Gbeta  = as.numeric(fit$report$pars["Gbeta"])
+    out$node = as.numeric(fit$report$node)
+    out$quad_wt = as.numeric(fit$report$quad_wt)
+  }
+  return(out)
 }
 
 #' Equilibrium numbers-at-length from an FLicc fit

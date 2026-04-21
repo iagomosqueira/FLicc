@@ -29,13 +29,19 @@ export(as_FLQuants)
 export(selpars_flicc)
 export(m_lorenzen)
 export(m_gislason)
+export(lfdess)
+export(lfd_long_to_wide)
+export(FLQuantLen)
+
 
 # --- Core FLicc recursion & helpers ---
 export(n_f_flicc)
+export(n_f_gtg_flicc)
 export(resolve_f_input_flicc)
 export(calc_Z_l)
 export(nf_from_flicc)
 export(flicc_refpars)
+export(pop_model_flicc)
 
 # --- Equilibrium quantities ---
 export(nf_flicc)

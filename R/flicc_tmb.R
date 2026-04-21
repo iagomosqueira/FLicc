@@ -123,6 +123,15 @@ data_tmb_flicc <- function(lfd, stklen, sel_fun, catch_by_gear,
                            stop("Supported obs_model options are 'nb', 'mn', 'dm'")
   )
 
+  pop_model <- if (!is.null(settings$pop_model)) settings$pop_model else "gamma"
+
+  pop_model_code <- switch(pop_model,
+                           gamma = 1L,
+                           gtg   = 2L,
+                           stop("Supported pop_model options are 'gamma' and 'gtg'")
+  )
+
+
 
   # quadrature
   gl <- statmod::gauss.quad(settings$GL, kind = "laguerre")
@@ -136,6 +145,36 @@ data_tmb_flicc <- function(lfd, stklen, sel_fun, catch_by_gear,
 
   CVL_init <- if (!is.null(settings$CVL)) as.numeric(settings$CVL) else 0.1
   Galpha_init <- 1 / CVL_init^2
+
+  # GTG controls
+  ngtg  <- if (!is.null(settings$ngtg))  as.integer(settings$ngtg)  else 13L
+  maxsd <- if (!is.null(settings$maxsd)) as.numeric(settings$maxsd) else 2
+  Mpow  <- if (!is.null(settings$Mpow))  as.numeric(settings$Mpow)  else 0
+
+  # GTG distribution over Linf #><> check fixed sd
+  SDLinf <- CVL_init * Linf_init
+
+  gtgLinfs <- seq(
+    from = Linf_init - maxsd * SDLinf,
+    to   = Linf_init + maxsd * SDLinf,
+    length.out = ngtg
+  )
+
+  recP <- dnorm(gtgLinfs, mean = Linf_init, sd = SDLinf)
+  recP <- recP / sum(recP)
+
+  # Bin boundaries for GTG mortality scaling
+  LBins <- c(LLB, tail(LLB, 1) + tail(step, 1))
+  #LBins <- c(Lmid, tail(Lmid, 1) + tail(step, 1))
+  #LBins <- LLB#c(LLB, tail(LLB, 1) + tail(step, 1))
+
+
+  # LBSPR-style optional length-based M/K scaling
+  MKL <- Mk_init * (Linf_init / LBins)^Mpow
+
+  # Matrix: one column per GTG
+  MKMat <- matrix(MKL, nrow = length(MKL), ncol = ngtg)
+
 
   prior_mu <- numeric()
   prior_sd <- numeric()
@@ -171,7 +210,12 @@ data_tmb_flicc <- function(lfd, stklen, sel_fun, catch_by_gear,
     mat        = unname(mat_mat),
     catch_wt   = unname(catch_wt),
     catch_sd   = catch_sd,
+    pop_model  = as.integer(pop_model_code),
     obs_model  = as.integer(obs_model_code),
+    ngtg       = as.integer(ngtg),
+    gtgLinfs   = as.numeric(gtgLinfs),
+    recP       = as.numeric(recP),
+    MKMat      = unname(MKMat),
     sel_type   = as.integer(sel_type),
     sm_start   = as.integer(sm_start),
     sm_n       = as.integer(sm_n),
@@ -368,7 +412,11 @@ fiticc_core <- function(lfd, stklen,
     CVL = 0.1,
     GL = 50,
     catch.sd = 0.05,
-    obs_model = "nb",
+    pop_model = "gtg",
+    obs_model = "mn",
+    ngtg = 13,
+    maxsd = 2,
+    Mpow = 0,
     prior_sigmaF = c(log(0.5), 0.3, 1),
     linf.sd = NULL,
     Mk.sd = NULL,
@@ -384,6 +432,14 @@ fiticc_core <- function(lfd, stklen,
     if (is.null(settings[[nm]])) {
       settings[[nm]] <- default_settings[[nm]]
     }
+  }
+
+  if (!settings$pop_model %in% c("gamma", "gtg")) {
+    stop("settings$pop_model must be 'gamma' or 'gtg'")
+  }
+
+  if (!settings$obs_model %in% c("nb", "mn", "dm")) {
+    stop("settings$obs_model must be 'nb', 'mn', or 'dm'")
   }
 
   unknown <- setdiff(names(settings), names(default_settings))
@@ -446,8 +502,10 @@ fiticc_core <- function(lfd, stklen,
     map$log_Galpha <- factor(NA)
   }
   # NEW: phi only relevant for NB
-  if (settings$obs_model %in% c("mn", "dm")) {
-    map$log_phi <- factor(NA)
+  if (settings$pop_model == "gtg") {
+    map$log_Galpha <- factor(NA)
+  } else if (is.null(settings$CVL.sd)) {
+    map$log_Galpha <- factor(NA)
   }
   if (!is.null(fix_res$map_Sm)) {
     map$Sm <- fix_res$map_Sm
@@ -505,6 +563,10 @@ fiticc_core <- function(lfd, stklen,
     class = "flicc_tmb_fit"
   )
 
+  fit$settings <- settings
+  fit$pop_model <- settings$pop_model
+  fit$obs_model <- settings$obs_model
+
   fit$logLik <- LLflicc(fit)
 
 
@@ -513,146 +575,113 @@ fiticc_core <- function(lfd, stklen,
 
 }
 
-#' Fit the FLicc model with an optional stability refit
+#' Fit FLicc length-based model using TMB
 #'
-#' Fits the FLicc TMB model to length-frequency data and, by default, performs
-#' one conditional refit with a higher \code{GL} value when the initial fit
-#' shows marginal convergence diagnostics. This gives a fast initial fit for
-#' routine use while improving robustness for first-time users and automated
-#' workflows.
+#' Fits the FLicc length-based equilibrium model to length-frequency data
+#' using Template Model Builder (TMB). The model separates the population
+#' process from the observation process, allowing flexible combinations of
+#' population structure and likelihood assumptions.
 #'
 #' @param lfd A named list of \code{FLQuant} objects containing observed
-#'   length-frequency distributions by gear.
-#' @param stklen An \code{FLStockLen} object, or compatible FLR object,
-#'   containing stock and life-history information for the same years and
-#'   iterations as \code{lfd}.
-#' @param sel_fun Character vector giving the selectivity function for each
-#'   gear. Supported options are \code{"logistic"}, \code{"normal"}, and
-#'   \code{"dsnormal"}.
-#' @param catch_by_gear Relative catch by gear. Can be supplied as a numeric
-#'   vector or as an \code{FLQuants} object.
-#' @param settings A named list of model settings. Recognized elements are:
+#'   length-frequency data by gear. Values can be counts or proportions.
+#'
+#' @param stklen An \code{FLStockLen}-like object containing life-history
+#'   parameters (e.g. Linf, k, M) and matching dimensions to \code{lfd}.
+#'
+#' @param sel_fun Character vector specifying selectivity function per gear.
+#'   Supported options include \code{"logistic"}, \code{"normal"},
+#'   and \code{"dsnormal"}.
+#'
+#' @param catch_by_gear Numeric vector of relative catch proportions by gear.
+#'   Must sum to 1.
+#'
+#' @param settings Named list of model settings. Key options include:
 #'   \describe{
-#'     \item{\code{CVL}}{Coefficient of variation in asymptotic length.
-#'       Default is \code{0.1}.}
-#'     \item{\code{GL}}{Number of Gauss-Laguerre quadrature points used in the
-#'       fishblicc-style population recursion. Default is \code{30}.}
-#'     \item{\code{catch.sd}}{Log-scale standard deviation controlling the
-#'       strength of the penalty linking predicted gear proportions to
-#'       \code{catch_by_gear}. Smaller values imply stronger anchoring.
-#'       Default is \code{0.05}.}
-#'     \item{\code{obs_model}}{Observation model. Supported options are
-#'       \code{"nb"} for negative binomial counts, \code{"mn"} for multinomial
-#'       composition likelihood, and \code{"dm"} for Dirichlet-multinomial
-#'       composition likelihood. Default is \code{"nb"}.}
-#'     \item{\code{prior_sigmaF}}{Optional prior specification for the random
-#'       walk standard deviation of fishing mortality in multi-year fits.}
-#'     \item{\code{linf.sd}}{Optional log-scale prior standard deviation for
-#'       \code{Linf}. If supplied, \code{Linf} is estimated with a penalty;
-#'       otherwise it is fixed.}
-#'     \item{\code{Mk.sd}}{Optional log-scale prior standard deviation for
-#'       \code{Mk}. If supplied, \code{Mk} is estimated with a penalty;
-#'       otherwise it is fixed.}
-#'     \item{\code{CVL.sd}}{Optional log-scale prior standard deviation for
-#'       \code{CVL}. If supplied, \code{CVL} is estimated with a penalty;
-#'       otherwise it is fixed.}
+#'     \item{\code{pop_model}}{Population model. Options are:
+#'       \code{"gtg"} (default), a growth-type-group approximation inspired
+#'       by LBSPR, and \code{"gamma"}, the original FLicc/BLICC continuous
+#'       growth formulation.}
+#'
+#'     \item{\code{obs_model}}{Observation likelihood. Options are:
+#'       \code{"mn"} (default, multinomial), \code{"nb"} (negative binomial),
+#'       and \code{"dm"} (Dirichlet-multinomial).}
+#'
+#'     \item{\code{CVL}}{Coefficient of variation in length-at-age.}
+#'
+#'     \item{\code{GL}}{Number of Gauss–Laguerre quadrature nodes (used only
+#'       when \code{pop_model = "gamma"}).}
+#'
+#'     \item{\code{catch.sd}}{Standard deviation for catch penalty.}
+#'
+#'     \item{\code{ngtg}}{Number of growth-type groups for
+#'       \code{pop_model = "gtg"}. Default is 13.}
+#'
+#'     \item{\code{maxsd}}{Range (in standard deviations) for GTG Linf
+#'       distribution. Default is 2.}
+#'
+#'     \item{\code{Mpow}}{Optional length-dependent mortality scaling
+#'       exponent (GTG only). Default is 0.}
+#'
+#'     \item{\code{prior_sigmaF}}{Prior for annual fishing mortality variation
+#'       (mean, sd, use flag).}
+#'
+#'     \item{\code{linf.sd, Mk.sd, CVL.sd}}{Optional penalties on life-history
+#'       parameters.}
 #'   }
-#'   Missing elements are filled from internal defaults.
-#' @param years Optional numeric vector of years to include in the fit. If
-#'   \code{NULL}, all years in \code{lfd} are used.
-#' @param iter Integer giving the iteration to fit. Iterations are subset in R
-#'   before passing data to TMB.
-#' @param compile Logical; if \code{TRUE}, compile the TMB model before fitting.
-#' @param silent Logical; passed to \code{TMB::MakeADFun()}.
-#' @param dll Character string giving the compiled TMB DLL name.
-#' @param sel_fixed Optional named list or vector used to fix selectivity
-#'   parameters rather than estimate them.
-#' @param FLRreport Logical; if \code{TRUE}, convert reported model outputs to
-#'   FLR-style objects using \code{as_FLQuants()}.
-#' @param safe_fit Logical; if \code{TRUE}, run one conditional refit when the
-#'   initial fit fails basic convergence checks.
-#' @param refit_GL Numeric value of \code{GL} to use for the conditional refit.
+#' @param by_year Logical. If \code{TRUE}, the model is fitted independently
+#'   for each year (LBSPR-style). Only the final fit object is retained, while
+#'   annual report quantities are updated and combined across years.
+#'   Default is \code{FALSE}.
 #'
 #' @details
-#' \code{fiticc()} is the main user-facing fitting function. It first calls
-#' \code{fiticc_core()} using the supplied settings. If \code{safe_fit = TRUE}
-#' and the initial fit has non-zero optimizer convergence, a non-finite
-#' objective, or a non-positive-definite Hessian, the model is refitted once
-#' with \code{settings$GL} replaced by \code{refit_GL}.
+#' The FLicc model separates:
 #'
-#' The \code{obs_model} setting controls how observed and predicted
-#' length-frequency distributions are compared:
 #' \itemize{
-#'   \item \code{"nb"} uses a negative binomial likelihood on counts and
-#'     estimates an observation dispersion parameter \code{phi}.
-#'   \item \code{"mn"} uses a multinomial likelihood on within-gear proportions.
-#'   \item \code{"dm"} uses a Dirichlet-multinomial likelihood on within-gear
-#'     proportions, allowing extra-multinomial variation.
+#'   \item \strong{Population model} (\code{pop_model}):
+#'     \itemize{
+#'       \item \code{"gtg"}: discrete growth-type-group approximation where
+#'         variability in asymptotic length is represented by a finite set
+#'         of groups with associated recruitment proportions.
+#'       \item \code{"gamma"}: continuous formulation based on a gamma
+#'         distribution of growth, solved using Gauss–Laguerre quadrature.
+#'     }
+#'
+#'   \item \strong{Observation model} (\code{obs_model}):
+#'     \itemize{
+#'       \item \code{"mn"}: multinomial likelihood for length compositions.
+#'         Effective sample size is taken directly from the observed LFD
+#'         (sum of counts), consistent with LBSPR and fishblicc.
+#'       \item \code{"nb"}: negative binomial likelihood for counts with
+#'         overdispersion.
+#'       \item \code{"dm"}: Dirichlet-multinomial likelihood for
+#'         overdispersed compositions.
+#'     }
 #' }
 #'
-#' For \code{"mn"} and \code{"dm"}, the recommended workflow is to preprocess
-#' raw length frequencies with \code{\link{lfdess()}} so that the total
-#' within each gear corresponds to a chosen effective sample size (ESS). In this
-#' setup, the likelihood is driven by composition shape within gear, while
-#' \code{catch_by_gear} and \code{catch.sd} control between-gear scaling.
+#' The default model (\code{pop_model = "gtg"}, \code{obs_model = "mn"})
+#' provides a fast and stable formulation closely aligned with LBSPR-style
+#' length-based assessment models.
 #'
-#' This default behaviour is intended to provide a good balance between speed
-#' and stability for routine use, while still exposing the core one-pass fit
-#' through \code{fiticc_core()} for development and debugging.
-#'
-#' @return
-#' An object of class \code{"flicc_tmb_fit"} containing at least:
+#' @return An object of class \code{"flicc_tmb_fit"} containing:
 #' \describe{
-#'   \item{\code{opt}}{The \code{nlminb()} optimizer output.}
-#'   \item{\code{obj}}{The \code{TMB::MakeADFun()} object.}
-#'   \item{\code{rep}}{The \code{TMB::sdreport()} result, when available.}
-#'   \item{\code{par}}{A data frame of estimated fixed effects and standard
-#'   errors.}
-#'   \item{\code{report}}{Reported model quantities, optionally converted to FLR
-#'   objects when \code{FLRreport = TRUE}.}
-#'   \item{\code{stklen}}{The input stock-length object.}
-#'   \item{\code{tmb_data}}{The processed TMB data list used for fitting.}
-#'   \item{\code{safe_fit}}{A list describing whether the conditional refit was
-#'   enabled and used.}
+#'   \item{\code{opt}}{Optimizer output.}
+#'   \item{\code{report}}{Reported model quantities from TMB.}
+#'   \item{\code{par}}{Estimated parameters.}
+#'   \item{\code{tmb_data}}{Input data passed to TMB.}
+#'   \item{\code{pop_model}}{Population model used.}
+#'   \item{\code{obs_model}}{Observation model used.}
 #' }
-#'
-#' @seealso \code{\link{fiticc_core}}, \code{\link{need_refit_flicc}},
-#'   \code{\link{lfdess}}
 #'
 #' @examples
-#' data(alfonsino)
-#'
-#' # Negative binomial count likelihood
-#' fit_nb <- fiticc(
+#' \dontrun{
+#' fit <- fiticc(
 #'   lfd_alfonsino,
 #'   stklen_alfonsino,
-#'   sel_fun = c("dsnormal", "logistic"),
-#'   catch_by_gear = c(0.7, 0.3),
-#'   settings = list(obs_model = "nb")
+#'   sel_fun = c("logistic", "logistic"),
+#'   catch_by_gear = c(0.7, 0.3)
 #' )
+#' }
 #'
-#' # Multinomial composition likelihood using ESS-scaled data
-#' lfd_ess <- lfdess(lfd_alfonsino, ess.g = c(200, 150))
-#'
-#' fit_mn <- fiticc(
-#'   lfd_ess,
-#'   stklen_alfonsino,
-#'   sel_fun = c("dsnormal", "logistic"),
-#'   catch_by_gear = c(0.7, 0.3),
-#'   settings = list(obs_model = "mn")
-#' )
-#'
-#' # Dirichlet-multinomial composition likelihood
-#' fit_dm <- fiticc(
-#'   lfd_ess,
-#'   stklen_alfonsino,
-#'   sel_fun = c("dsnormal", "logistic"),
-#'   catch_by_gear = c(0.7, 0.3),
-#'   settings = list(obs_model = "dm")
-#' )
-#'
-#' fit_nb$safe_fit
-#' @export
 #' @export
 fiticc <- function(lfd, stklen,
                    sel_fun = c("logistic", "normal", "dsnormal"),
@@ -661,7 +690,11 @@ fiticc <- function(lfd, stklen,
                      CVL = 0.1,
                      GL = 30,
                      catch.sd = 0.05,
-                     obs_model = "nb",
+                     pop_model = "gtg",
+                     obs_model = "mn",
+                     ngtg = 13,
+                     maxsd = 2,
+                     Mpow = 0,
                      prior_sigmaF = c(log(0.5), 0.3, 1),
                      linf.sd = NULL,
                      Mk.sd = NULL,
@@ -672,11 +705,67 @@ fiticc <- function(lfd, stklen,
                    compile = FALSE,
                    silent = TRUE,
                    dll = "FLicc",
+                   by_year = FALSE,
                    sel_fixed = NULL,
                    FLRreport = TRUE,
                    safe_fit = TRUE,
                    refit_GL = 100) {
 
+
+     if(by_year){
+      yrs <- dimnames(stklen)$year
+      if(!is.null(years)){
+       yrs <-  yrs[an(yrs)%in%years]
+      }
+
+      nyrs <- length(yrs)
+      # Loops through years
+      fity <- lapply(yrs,function(y){
+
+           if (inherits(catch_by_gear, "FLQuants")){
+             cbg <- window(catch_by_gear,start= yrs[nyrs],end=yrs[nyrs])
+           } else {
+             cbg <- catch_by_gear
+           }
+
+         fiticc_core(
+         lfd = window(lfd,start= y,end=y),
+         stklen = window(stklen,start= y,y),
+         sel_fun = sel_fun,
+         catch_by_gear =cbg,
+         settings = settings,
+         years = NULL,
+         iter = iter,
+         compile = compile,
+         silent = silent,
+         dll = dll,
+         sel_fixed = sel_fixed,
+         FLRreport = TRUE
+         )}
+      )
+      repy <-  fity[[1]]$report
+      fit_final = fity[[nyrs]]
+      dn <-  names(fity[[1]]$report)[-c(3)]
+      qs <- dn[c(1:14)]
+
+      for(y in 2:nyrs){
+       for(i in seq(qs)){
+        flq <- repy[[qs[i]]]
+        if(!inherits(repy[[qs[i]]], "FLQuants")){
+        repy[[qs[i]]] <- append(repy[[qs[i]]],fity[[y]]$report[[qs[i]]])
+        } else {
+        for(f in 1:length(repy[[qs[i]]])){
+          repy[[qs[i]]][[f]] <- append(repy[[qs[i]]][[f]],fity[[y]]$report[[qs[i]]][[f]])
+        }}
+       }
+      }
+      fit_final <- fity[[nyrs]]
+      fit_final$stklen <- stklen
+      fit_final$report[qs] <- repy[qs]
+  }
+
+
+  if(!by_year){
   fit1 <- fiticc_core(
     lfd = lfd,
     stklen = stklen,
@@ -691,6 +780,8 @@ fiticc <- function(lfd, stklen,
     sel_fixed = sel_fixed,
     FLRreport = FLRreport
   )
+
+  if(pop_model_flicc(fit1)%in%"gtg")  safe_fit = FALSE
 
   refit_used <- FALSE
   fit_final <- fit1
@@ -731,6 +822,7 @@ fiticc <- function(lfd, stklen,
     refit_GL = if (refit_used) refit_GL else NA_real_,
     final_needs_refit = need_refit_flicc(fit_final, grad_tol = grad_tol)
   )
+  }
 
   fit_final
 }

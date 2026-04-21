@@ -59,6 +59,13 @@
 
 as_FLQuants <- function(fit,stklen) {
 
+  pop_model <- if (!is.null(fit$pop_model)) fit$pop_model else
+    if (!is.null(fit$settings$pop_model)) fit$settings$pop_model else "gamma"
+
+  obs_model <- if (!is.null(fit$obs_model)) fit$obs_model else
+    if (!is.null(fit$settings$obs_model)) fit$settings$obs_model else "nb"
+
+
   tmb_data <- fit$tmb_data
   report <- fit$report
   yrs   <- an(tmb_data$year_names)
@@ -258,10 +265,35 @@ as_FLQuants <- function(fit,stklen) {
   out$selpars <- selpars_flicc(fit)
   out$pars <- FLPar(Linf=report$Linf, Galpha= report$Galpha,
                     Gbeta = report$Gbeta,phi=report$phi)
+
+  par_list <- list(Linf = report$Linf)
+
+  if (pop_model == "gamma") {
+    par_list$Galpha <- report$Galpha
+    par_list$Gbeta  <- report$Gbeta
+  }
+
+  if (pop_model == "gtg") {
+    if (!is.null(tmb_data$ngtg))  par_list$ngtg  <- tmb_data$ngtg
+    if (!is.null(fit$settings$maxsd)) par_list$maxsd <- fit$settings$maxsd
+    if (!is.null(fit$settings$Mpow))  par_list$Mpow  <- fit$settings$Mpow
+  }
+
+  if (obs_model == "nb") {
+    par_list$phi <- report$phi
+  }
+
+  out$pars <- do.call(FLCore::FLPar, par_list)
+
+
   out$Lmid = tmb_data$Lmid
-  out$node <- tmb_data$node
-  out$quad_wt <- tmb_data$quad_wt
+  if (pop_model == "gamma") {
+    out$node <- tmb_data$node
+    out$quad_wt <- tmb_data$quad_wt
+  }
   out$logLik <- -fit$opt$objective
+  out$pop_model <- pop_model
+  out$obs_model <- obs_model
 
   out$FLReport <- TRUE
   return(out)
@@ -522,11 +554,163 @@ lfdess <- function(lfd, ess.g=100) {
 
   }
 
-  out <- Map(function(x,y){
+  out <- FLQuants(Map(function(x,y){
     res <- x%/%apply(x,2:6,sum,na.rm=T)
     res*y
-  },x=lfd,y=ess.g)
+  },x=lfd,y=ess.g))
 
 
+  out
+}
+
+
+#' Convert wide length-frequency tables to FLQuants
+#'
+#' Converts a wide \code{data.frame} of length-frequency observations into
+#' an \code{FLQuants} object suitable as FLicc length-frequency input.
+#'
+#' The input table is expected to contain:
+#' \itemize{
+#'   \item column 1: length class values,
+#'   \item column 2: gear names,
+#'   \item remaining columns: annual length-frequency data by year.
+#' }
+#'
+#' One \code{FLQuant} is created per gear, and the resulting collection is
+#' returned as an \code{FLQuants} object.
+#'
+#' @param lfd A \code{data.frame} with length in the first column, gear in the
+#'   second column, and yearly observations in the remaining columns.
+#' @param midL Logical. If \code{TRUE}, the first column is interpreted as
+#'   length midpoints and converted to lower bin bounds by subtracting half
+#'   the bin width. If \code{FALSE} (default), the first column is assumed
+#'   to already contain lower bin bounds.
+#' @param unit Character string giving the length unit of the first column.
+#'   If \code{"mm"}, lengths are converted to cm by dividing by 10.
+#'   Default is \code{"mm"}.
+#'
+#' @details
+#' The returned \code{FLQuants} object contains one \code{FLQuant} per gear.
+#' Length classes are stored in the \code{len} dimension and years in the
+#' \code{year} dimension. Output units are set to \code{"cm"}.
+#'
+#' If \code{midL = TRUE}, the bin width is calculated from the first two
+#' length values in the input and half a bin width is subtracted to obtain
+#' lower bin bounds.
+#'
+#' @return An \code{FLQuants} object with one element per gear.
+#'
+#' @examples
+#' \dontrun{
+#' lfd_df <- data.frame(
+#'   Length = c(25, 35, 45, 25, 35, 45),
+#'   gear   = c("Trawl", "Trawl", "Trawl", "Gillnet", "Gillnet", "Gillnet"),
+#'   `2020` = c(10, 20, 15, 5, 8, 6),
+#'   `2021` = c(12, 18, 17, 4, 9, 7)
+#' )
+#'
+#' lfd_flq <- FLQuantLen(lfd_df, midL = TRUE, unit = "mm")
+#' lfd_flq
+#' }
+#'
+#' @export
+
+FLQuantLen <- function(lfd,midL=FALSE,unit="mm") {
+
+  gear <- unique(lfd[,2])
+  half <- 0
+  div <- 1
+  if(unit=="mm") lfd[,1] <- lfd[,1]/10
+  if(midL) half <- (lfd[2,1]-lfd[1,1])/2
+  names(lfd)[2] <- "gear"
+
+  flqs <- FLQuants(lapply(gear,function(x){
+  FLQuant(as.matrix(lfd[lfd$gear%in%x,-c(1:2)]),dimnames=list(len=ac((lfd[lfd$gear%in%x,1]-half)/div), year=colnames(lfd)[-c(1:2)]),unit="cm")
+
+  }))
+  names(flqs) <- gear
+  return(flqs)
+}
+
+
+
+#' Convert long-format LFD to FLQuantLen input format
+#'
+#' Converts a long-format length-frequency dataset into the wide format
+#' required by \code{FLQuantLen()}, with one row per length class and one
+#' column per year for each gear.
+#'
+#' The input data must contain the columns:
+#' \itemize{
+#'   \item \code{len}: length class values
+#'   \item \code{year}: year
+#'   \item \code{data}: observed counts or frequencies
+#'   \item \code{qname}: gear identifier
+#' }
+#'
+#' The output is a wide \code{data.frame} with columns:
+#' \itemize{
+#'   \item \code{len}: length class
+#'   \item \code{gear}: gear name
+#'   \item one column per year containing observations
+#' }
+#'
+#' @param df A \code{data.frame} in long format with columns
+#'   \code{len}, \code{year}, \code{data}, and \code{qname}.
+#'
+#' @return A wide \code{data.frame} suitable as input to
+#'   \code{FLQuantLen()}.
+#'
+#' @details
+#' The function splits the data by gear, reshapes each subset from long to
+#' wide format using \code{stats::reshape()}, and then combines the results.
+#' Missing combinations of length and year are filled with zeros.
+#'
+#' The resulting table can be passed directly to \code{FLQuantLen()} to
+#' construct an \code{FLQuants} object for FLicc.
+#'
+#' @examples
+#' \dontrun{
+#' df_long <- as.data.frame(lfd_alfonsino)
+#'
+#' df_wide <- lfd_long_to_wide(df_long)
+#'
+#' lfd_flq <- FLQuantLen(df_wide, midL = FALSE,unit="cm")
+#' }
+#'
+#' @seealso \code{\link{FLQuantLen}}
+#'
+#' @export
+
+lfd_long_to_wide <- function(df) {
+  df <- df[, c("len", "year", "data", "qname")]
+
+  gears <- split(df, df$qname)
+
+  out <- do.call(
+    rbind,
+    lapply(names(gears), function(g) {
+      d <- gears[[g]]
+
+      # keep only len, year, data for reshape
+      d <- d[, c("len", "year", "data")]
+
+      w <- reshape(
+        d,
+        idvar = "len",
+        timevar = "year",
+        direction = "wide"
+      )
+
+      names(w) <- sub("^data\\.", "", names(w))
+      w <- w[order(w$len), , drop = FALSE]
+      w$gear <- g
+
+      w <- w[, c("len", "gear", setdiff(names(w), c("len", "gear"))), drop = FALSE]
+      w
+    })
+  )
+
+  rownames(out) <- NULL
   out
 }

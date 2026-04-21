@@ -71,7 +71,7 @@ Type dnbinom_phi(Type x, Type mu, Type phi, int give_log = 0)
 }
 
 // ---------------------------------------------------------
-// Population recursion (unchanged)
+// Population recursion (gamma-blicc)
 // ---------------------------------------------------------
 template<class Type>
 vector<Type> pop_len_glq(const vector<Type>& node,
@@ -144,6 +144,66 @@ vector<Type> pop_len_glq(const vector<Type>& node,
 
   return NI;
 }
+// ---------------------------------------------------------
+// Population recursion (gtg-lbspr)
+// ---------------------------------------------------------
+template<class Type>
+vector<Type> pop_len_gtg(const vector<Type>& LLB,
+                         const vector<Type>& gtgLinfs,
+                         const matrix<Type>& ZKLMat,
+                         const vector<Type>& recP)
+{
+  int nlen = LLB.size();
+  int ngtg = gtgLinfs.size();
+
+  vector<Type> N(nlen);
+  N.setZero();
+
+  // Build upper bin boundary vector of length nlen + 1
+  vector<Type> LBins(nlen + 1);
+  for(int l = 0; l < nlen; l++) {
+    LBins(l) = LLB(l);
+  }
+
+  if(nlen > 1) {
+    Type step_last = LLB(nlen - 1) - LLB(nlen - 2);
+    LBins(nlen) = LLB(nlen - 1) + step_last;
+  } else {
+    LBins(nlen) = LLB(0) + Type(1.0);
+  }
+
+  matrix<Type> NPRFished(nlen + 1, ngtg);
+  NPRFished.setZero();
+
+  // recruitment entering first boundary
+  for(int g = 0; g < ngtg; g++) {
+    NPRFished(0, g) = recP(g);
+  }
+
+  // recursion across boundaries
+  for(int g = 0; g < ngtg; g++) {
+    for(int l = 1; l < (nlen + 1); l++) {
+
+      Type num = gtgLinfs(g) - LBins(l);
+      Type den = gtgLinfs(g) - LBins(l - 1);
+
+      if(num <= Type(1e-12)) num = Type(1e-12);
+      if(den <= Type(1e-12)) den = Type(1e-12);
+
+      NPRFished(l, g) =
+        NPRFished(l - 1, g) * pow(num / den, ZKLMat(l - 1, g));
+    }
+  }
+
+  // convert boundary survivorship to numbers in bins
+  for(int l = 0; l < nlen; l++) {
+    for(int g = 0; g < ngtg; g++) {
+      N(l) += (NPRFished(l, g) - NPRFished(l + 1, g)) / ZKLMat(l, g);
+    }
+  }
+
+  return N;
+}
 
 // ---------------------------------------------------------
 // Objective (MULTI-YEAR VERSION)
@@ -166,6 +226,12 @@ Type objective_function<Type>::operator() ()
   DATA_MATRIX(catch_wt);
   DATA_SCALAR(catch_sd);
   DATA_INTEGER(obs_model);   // 1 = nb, 2 = multinom, 3 = dirichlet
+
+  DATA_INTEGER(pop_model);   // 1 = gamma, 2 = gtg
+  DATA_INTEGER(ngtg);
+  DATA_VECTOR(gtgLinfs);
+  DATA_VECTOR(recP);
+  DATA_MATRIX(MKMat);        // (nlen + 1) x ngtg
 
   DATA_IVECTOR(sel_type);
   DATA_IVECTOR(sm_start);
@@ -217,7 +283,29 @@ Type objective_function<Type>::operator() ()
     Z0(l) = M(l);
   }
 
-  N0 = pop_len_glq(node, quad_wt, LLB, Z0, Galpha, Gbeta);
+  if(pop_model == 1) {
+    N0 = pop_len_glq(node, quad_wt, LLB, Z0, Galpha, Gbeta);
+
+  } else if(pop_model == 2) {
+    matrix<Type> ZKL0(nlen + 1, ngtg);
+    ZKL0.setZero();
+
+    for(int g = 0; g < ngtg; g++) {
+      for(int l = 0; l < nlen; l++) {
+        ZKL0(l, g) = MKMat(l, g) * Mscaler(l, 0);
+      }
+      ZKL0(nlen, g) = MKMat(nlen, g) * Mscaler(nlen - 1, 0);
+    }
+
+    N0 = pop_len_gtg(LLB, gtgLinfs, ZKL0, recP);
+
+  } else {
+    error("Unknown pop_model");
+  }
+
+
+
+
 
   // --- OUTPUT OBJECTS ---
   array<Type> plen(nlen, nyear, ngear);
@@ -258,7 +346,26 @@ Type objective_function<Type>::operator() ()
       }
     }
 
-    N = pop_len_glq(node, quad_wt, LLB, Z, Galpha, Gbeta);
+    if(pop_model == 1) {
+      N = pop_len_glq(node, quad_wt, LLB, Z, Galpha, Gbeta);
+
+    } else if(pop_model == 2) {
+      matrix<Type> ZKL(nlen + 1, ngtg);
+      ZKL.setZero();
+
+      for(int g = 0; g < ngtg; g++) {
+        for(int l = 0; l < nlen; l++) {
+          ZKL(l, g) = MKMat(l, g) * Mscaler(l, y) + (Z(l) - M(l));
+        }
+        ZKL(nlen, g) = MKMat(nlen, g) * Mscaler(nlen - 1, y) + (Z(nlen - 1) - M(nlen - 1));
+      }
+
+      N = pop_len_gtg(LLB, gtgLinfs, ZKL, recP);
+
+    } else {
+      error("Unknown pop_model");
+    }
+
 
     for(int l = 0; l < nlen; l++) {
       N_y(l,y) = N(l);

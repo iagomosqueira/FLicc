@@ -487,7 +487,8 @@ flicc2FLStockR <- function(fit, spr.btgt = 0.4, bpa = 0.2, blim = 0.1, rel = FAL
 
   stklen <- fit$stklen
 
-  stk <- flicc_stklen(fit,stklen)
+  stk <- flicc_stklen(fit)
+
   year <- dimnames(stklen)$year
 
   N = as.FLQuant(data.frame(age=1,year=year,unit="unique",

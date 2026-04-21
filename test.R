@@ -3,6 +3,22 @@ library(FLicc)
 
 data("alfonsino")
 
+# Example input date structure
+LFD.df <- lfd_long_to_wide(as.data.frame(lfd_alfonsino))
+
+head(LFD.df)
+unique(LFD.df$gear)
+unique(LFD.df$len)
+
+# Convert to FLQuants
+lfd <- FLQuantLen(LFD.df,unit="cm",midL=FALSE)
+# Observed Frequencies
+plot_lfd(lfd,type="relmax")
+
+# Normalized to maximum
+plot_lfd(lfd,type="relmax")
+
+
 # Specify Life History
 lhpar <- FLPar(
   linf = 55.7,
@@ -13,10 +29,6 @@ lhpar <- FLPar(
   b    = 3.146168
 )
 
-
-# LFD observations
-lfd<- lfd_alfonsino
-plot_lfd(lfd,type="relmax")
 
 # Build FLStockLen input
 stklen <- stocklen(lfd,lhpar,m_model="constant")
@@ -36,8 +48,10 @@ m_stks <- FLStocks(lapply(m_models,function(x){
 names(m_stks) <- m_models
 plot_m(m_stks)
 
+
 # Fit model
-fit <- fiticc(lfd, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear = c(0.7,0.3))
+fit <- fiticc(lfd, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear =c(0.7,0.3),
+              settings=list(prior_sigmaF = c(log(0.5), 0.3,1)))
 # log-likelihood
 ll <- LLflicc(fit)
 ll[[1]]
@@ -99,8 +113,54 @@ stk@refpts
 plot_LBAdvice(stk)
 # relative to MSY proxy
 stkr <- flicc2FLStockR(fit,rel=T)
-plot_LBAdvice(stkr)
+plot_LBAdvice(stkr,panel=1)+ylim(0.,1.5)
 
-plot_LBAdvice(stkr,panels=1)+ylim(0,1.5)
+# Fit model each year separately (LBSPR-like)
+fit.y <- fiticc(lfd, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear =c(0.7,0.3),
+              settings=list(prior_sigmaF = c(log(0.5), 0.3,1)),by_year=TRUE)
+
+stky <- flicc_stklen(fit.y)
+# Plot fishery selectivity estimated for each year
+plot_sel(stky)
+# compare
+plot_spr(list(all.yr=fit,each.y=fit.y))
+
+#><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>
+# Compare fishblicc and LBSPR population and error models
+#><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>
+#> LBSRP: pop_model = "gtg", obs_model = "mn" # multinomial (Default)
+#> fishblicc: pop_model = "gamma", obs_model = "nb" # negative bionomial
+#> Addtional option for obs_model = "dm" # Dirichlet-multinomial
+
+#> Note ESS is based on the number of observations.
+#> This can be adjusted, for example, by:
+#>
+lfd.ess <- lfdess(lfd,ess.g=c(Trawl=250,Gillnet=350))
+plot_lfd(lfd.ess)
+
+# Slowest
+system.time({
+fit.gamma.nb <- fiticc(lfd.ess, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear =c(0.7,0.3),
+                settings=list(pop_model="gamma",obs_model="nb"))
+})
+
+# Faster
+system.time({
+  fit.gtg.mn <- fiticc(lfd.ess, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear =c(0.7,0.3),
+                   settings=list(pop_model="gtg",obs_model="mn"))
+})
+
+# now with Dirichlet-multinomial - STILL NEEDS TESTING!!!
+system.time({
+  fit.gtg.dm <- fiticc(lfd.ess, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear =c(0.7,0.3),
+                       settings=list(pop_model="gtg",obs_model="dm"))
+})
+
+# compare
+plot_spr(list(gamma.nb=fit.gamma.nb,
+              gtg.mn=fit.gtg.mn,
+              gtg.dm=fit.gtg.dm))
+
+
 
 
