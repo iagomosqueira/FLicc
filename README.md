@@ -20,6 +20,48 @@ In practice, combining gears can help separate mortality from selectivity, impro
 
 ---
 
+## Relationship to LBSPR and per-recruit models
+
+`FLicc` is closely related to the **length-based spawning potential ratio (LBSPR)** framework developed by Hordyk et al. (2015). Both approaches are based on a **length-structured per-recruit model**, where population structure and SPR are determined primarily by the ratio:
+
+$$
+\frac{Z}{K} = \frac{M + F}{K}
+$$
+
+A key result of this framework is that abundance-at-length can be expressed recursively as:
+
+$$
+N_L \propto (L_\infty - L)^{Z/K}
+$$
+
+This allows SPR and fishing mortality to be estimated directly from length composition data without requiring age-structured models.
+
+### Reproducibility
+
+Under the special case of:
+
+- a **single fleet**  
+- **logistic selectivity**  
+- a **multinomial likelihood**  
+
+`FLicc` reproduces LBSPR-type inference. In this sense, `FLicc` provides a reproducible and extensible implementation of the LBSPR framework within an FLR/TMB workflow.
+
+### Extensions in FLicc
+
+Relative to LBSPR, `FLicc` extends the framework by:
+
+- supporting **multiple gears with distinct selectivity patterns**,  
+- allowing **flexible and dome-shaped selectivity**,  
+- separating **population and observation models**,  
+- enabling **multi-year estimation**, and  
+- providing alternative likelihoods for overdispersed data.
+
+These extensions improve identifiability of fishing mortality and selectivity, particularly in mixed-gear fisheries.
+
+
+
+---
+
 ## Why multi-gear fitting helps
 
 A central advantage of `FLicc` is that multi-gear data can inform different parts of the inference problem at the same time.
@@ -76,6 +118,101 @@ $$
 where $F_j$ is the apical fishing mortality for gear $j$, $sel_{ijk}$ is the selectivity component at length for gear $j$, and $w_k$ are mixture weights when multiple selectivity components are used. This is the key decomposition that allows `FLicc` to separate gear impact from information on stock size structure. :contentReference[oaicite:6]{index=6}
 
 ---
+
+
+
+---
+
+## Population and observation models
+
+`FLicc` separates the model into:
+
+- a **population model**, which generates the expected length composition, and  
+- an **observation model**, which links observed data to model expectations.
+
+### Default configuration
+
+```r
+settings = list(pop_model = "gtg", obs_model = "mn")
+```
+
+This configuration is typically **5–10× faster** than the original fishblicc formulation and is recommended for most applications.
+
+---
+
+### Population models
+
+#### GTG (default)
+
+The **growth-type-group (GTG)** formulation approximates growth variability and survival efficiently:
+
+$$
+\pi_i = \frac{N_i}{\sum_k N_k}
+$$
+
+with recursive survival:
+
+$$
+N_{i+1} = N_i \exp(-Z_i \Delta t_i)
+$$
+
+This formulation captures the key structure of LBSPR-style models while avoiding costly numerical integration.
+
+---
+
+#### Gamma (fishblicc-style)
+
+The original fishblicc formulation integrates over variability in asymptotic length:
+
+$$
+N_i = \int f(L_\infty) \, S_i(L_\infty) \, dL_\infty
+$$
+
+This approach is more flexible but computationally slower due to numerical integration.
+
+---
+
+### Observation models
+
+Let $y_i$ be observed counts and $\pi_i$ expected proportions.
+
+#### Multinomial (default)
+
+$$
+\mathbf{y} \sim \text{Multinomial}(n, \boldsymbol{\pi})
+$$
+
+Fast, stable, and consistent with LBSPR.
+
+---
+
+#### Dirichlet–multinomial
+
+$$
+\mathbf{y} \sim \text{DM}(n, \boldsymbol{\pi}, \theta)
+$$
+
+Allows for overdispersion in length composition data.
+
+---
+
+#### Negative binomial
+
+$$
+y_i \sim \text{NB}(\mu_i, \phi), \quad \mu_i = n \pi_i
+$$
+
+Flexible variance structure but slower and less stable.
+
+---
+
+### Practical guidance
+
+- **Default (recommended):** GTG + multinomial  
+- **fishblicc replication:** gamma + negative binomial  
+- **Overdispersed data:** Dirichlet–multinomial  
+
+
 
 ## Natural mortality at length
 
@@ -335,9 +472,26 @@ For a full reproducible example, see the test script:
 
 ```r
 
+
 library(FLicc)
 
 data("alfonsino")
+
+# Example input date structure
+LFD.df <- lfd_long_to_wide(as.data.frame(lfd_alfonsino))
+
+head(LFD.df)
+unique(LFD.df$gear)
+unique(LFD.df$len)
+
+# Convert to FLQuants
+lfd <- FLQuantLen(LFD.df,unit="cm",midL=FALSE)
+# Observed Frequencies
+plot_lfd(lfd,type="relmax")
+
+# Normalized to maximum
+plot_lfd(lfd,type="relmax")
+
 
 # Specify Life History
 lhpar <- FLPar(
@@ -349,10 +503,6 @@ lhpar <- FLPar(
   b    = 3.146168
 )
 
-
-# LFD observations
-lfd<- lfd_alfonsino
-plot_lfd(lfd,type="relmax")
 
 # Build FLStockLen input
 stklen <- stocklen(lfd,lhpar,m_model="constant")
@@ -372,8 +522,10 @@ m_stks <- FLStocks(lapply(m_models,function(x){
 names(m_stks) <- m_models
 plot_m(m_stks)
 
+
 # Fit model
-fit <- fiticc(lfd, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear = c(0.7,0.3))
+fit <- fiticc(lfd, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear =c(0.7,0.3),
+              settings=list(prior_sigmaF = c(log(0.5), 0.3,1)))
 # log-likelihood
 ll <- LLflicc(fit)
 ll[[1]]
@@ -435,10 +587,49 @@ stk@refpts
 plot_LBAdvice(stk)
 # relative to MSY proxy
 stkr <- flicc2FLStockR(fit,rel=T)
-plot_LBAdvice(stkr)
-# Show one panel SPR only
-plot_LBAdvice(stkr,panels=1)+ylim(0,1.5)
+plot_LBAdvice(stkr,panel=1)+ylim(0.,1.5)
 
+
+#><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>
+# Fit model each year separately (LBSPR-like)
+#><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>
+
+fit.y <- fiticc(lfd, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear =c(0.7,0.3),
+              settings=list(prior_sigmaF = c(log(0.5), 0.3,1)),by_year=TRUE)
+
+stky <- flicc_stklen(fit.y)
+# Plot fishery selectivity estimated for each year
+plot_sel(stky)
+# compare
+plot_spr(list(all.yr=fit,each.y=fit.y))
+
+#><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>
+# Compare fishblicc and LBSPR population and error models
+#><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>><>
+#> LBSRP: pop_model = "gtg", obs_model = "mn" # multinomial (Default)
+#> fishblicc: pop_model = "gamma", obs_model = "nb" # negative bionomial
+
+#> Note ESS is based on the number of observations (like in LBSRP,fishblicc).
+#> This can be adjusted, for example, by:
+#>
+lfd.ess <- lfdess(lfd,ess.g=c(Trawl=250,Gillnet=350))
+plot_lfd(lfd.ess)
+
+# Slower
+system.time({
+fit.gamma.nb <- fiticc(lfd.ess, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear =c(0.7,0.3),
+                settings=list(pop_model="gamma",obs_model="nb"))
+})
+
+# Faster
+system.time({
+  fit.gtg.mn <- fiticc(lfd.ess, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear =c(0.7,0.3),
+                   settings=list(pop_model="gtg",obs_model="mn"))
+})
+
+# compare
+plot_spr(list(gamma.nb=fit.gamma.nb,
+              gtg.mn=fit.gtg.mn))
 
 
 

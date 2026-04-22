@@ -504,7 +504,7 @@ flicc2FLStockR <- function(fit, spr.btgt = 0.4, bpa = 0.2, blim = 0.1, rel = FAL
   L[] <-  FLQuant(landings(stk),quant="age")
   D[] <- FLQuant(discards(stk),quant="age")
 
-  eqs<- eqstklen (fit,F=c(0,mean(stk@m)),spr.tgt = spr.btgt*100)
+  eqs<- eqstklen(fit,F=c(0,mean(stk@m)),spr.tgt = spr.btgt*100)
   spr0 <- an(eqs@refpts["SPR0"])
   fspr <-  an(eqs@refpts["Fspr"])
 
