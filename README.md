@@ -338,9 +338,11 @@ Relative to the original `fishblicc` implementation in Stan, `FLicc` introduces 
 - **Structured variation in fishing mortality**  
   Annual fishing mortality is modelled as a log-scale random walk:
   
-  $$
-  log F_y = \log F_{y-1} + \epsilon_y, \quad \epsilon_y \sim \mathcal{N}(0, \sigma_F^2)
-  $$
+  
+$$
+\log F_y = \log F_{y-1} + \epsilon_y, \quad \epsilon_y \sim \mathcal{N}(0, \sigma_F^2)
+$$
+  
   
   This introduces temporal structure that stabilises estimation when fitting multiple years jointly, allowing fishing mortality to evolve smoothly while still capturing interannual variability. It also facilitates the estimation of life-history and selectivity parameters by borrowing strength across years.
 
