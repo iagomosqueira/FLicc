@@ -65,6 +65,10 @@ LBIspr<- function(fit, gear = NULL, spr = 40, thresh = 0.75,
   pref_out <- numeric(length(gear))
   pobs_out <- numeric(length(gear))
 
+  LFDobs <- fit$report$obslen
+  LFDref <- fit$report$obslen
+  Lref <- NULL
+
   for (i in seq_along(gear)) {
     g <- gear[i]
     # gear-specific selectivity
@@ -91,6 +95,10 @@ LBIspr<- function(fit, gear = NULL, spr = 40, thresh = 0.75,
     Lthresh<- Len2[which.min((n_thresh - cums)^2)]
     Li <- ac(Len2[Len2>= Lthresh])
 
+    LFDref[[g]][] <- vref
+    Lref <- c(Lref,Lthresh)
+
+
     # expected proportion above threshold
     pref <- sum(vref[Li,], na.rm = TRUE) / sum(vref, na.rm = TRUE)
 
@@ -113,6 +121,11 @@ LBIspr<- function(fit, gear = NULL, spr = 40, thresh = 0.75,
     idx@range[c("startf","endf")] =c(0.4,0.6)
     idx
     },x=flqs,y= fit$report$sel_gear))
+
+ names(Lref) <- gear_names
+ attr(out,"LFDref") <- LFDref
+ attr(out,"Lref") <- Lref
+
  return(out)
 
 }

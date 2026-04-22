@@ -587,7 +587,7 @@ lfdess <- function(lfd, ess.g=100) {
 #'   to already contain lower bin bounds.
 #' @param unit Character string giving the length unit of the first column.
 #'   If \code{"mm"}, lengths are converted to cm by dividing by 10.
-#'   Default is \code{"mm"}.
+#'   Default is \code{"cm"}.
 #'
 #' @details
 #' The returned \code{FLQuants} object contains one \code{FLQuant} per gear.
@@ -609,13 +609,13 @@ lfdess <- function(lfd, ess.g=100) {
 #'   `2021` = c(12, 18, 17, 4, 9, 7)
 #' )
 #'
-#' lfd_flq <- FLQuantLen(lfd_df, midL = TRUE, unit = "mm")
+#' lfd_flq <- FLQuantLen(lfd_df, midL = TRUE, unit = "cm")
 #' lfd_flq
 #' }
 #'
 #' @export
 
-FLQuantLen <- function(lfd,midL=FALSE,unit="mm") {
+FLQuantLen <- function(lfd,midL=FALSE,unit="cm") {
 
   gear <- unique(lfd[,2])
   half <- 0

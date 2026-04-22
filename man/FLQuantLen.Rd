@@ -4,7 +4,7 @@
 \alias{FLQuantLen}
 \title{Convert wide length-frequency tables to FLQuants}
 \usage{
-FLQuantLen(lfd, midL = FALSE, unit = "mm")
+FLQuantLen(lfd, midL = FALSE, unit = "cm")
 }
 \arguments{
 \item{lfd}{A \code{data.frame} with length in the first column, gear in the
@@ -17,7 +17,7 @@ to already contain lower bin bounds.}
 
 \item{unit}{Character string giving the length unit of the first column.
 If \code{"mm"}, lengths are converted to cm by dividing by 10.
-Default is \code{"mm"}.}
+Default is \code{"cm"}.}
 }
 \value{
 An \code{FLQuants} object with one element per gear.
@@ -54,7 +54,7 @@ lfd_df <- data.frame(
   `2021` = c(12, 18, 17, 4, 9, 7)
 )
 
-lfd_flq <- FLQuantLen(lfd_df, midL = TRUE, unit = "mm")
+lfd_flq <- FLQuantLen(lfd_df, midL = TRUE, unit = "cm")
 lfd_flq
 }
 

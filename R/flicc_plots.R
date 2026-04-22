@@ -1866,3 +1866,281 @@ plot_lw <- function(object, nyears = 1, len_by = 5,
 
   return(p)
 }
+
+
+#' Plot observed vs expected length composition at Fspr
+#'
+#' A plotting helper for the length-based indicator workflow. For each selected
+#' gear and year, the function overlays the observed length-frequency
+#' distribution with the expected vulnerable length distribution at Fspr, and
+#' shows the Lspr threshold used in the indicator calculation.
+#'
+#' Panels are arranged with years in rows and gears in columns.
+#'
+#' @param fit fitted FLicc object
+#' @param year optional years to plot; defaults to all available years
+#' @param gear optional gears to plot; defaults to all available gears
+#' @param spr target SPR percentage, default 40
+#' @param thresh cumulative threshold used to define Lspr, default 0.75
+#' @param nyears number of terminal years used when computing Fspr
+#' @param scale_sel logical; passed to nf_flicc()
+#' @param observed_fill fill colour for observed bars
+#' @param observed_colour outline colour for observed bars
+#' @param expected_colour line colour for expected Fspr distribution
+#' @param threshold_colour colour of vertical threshold line
+#' @param threshold_linetype linetype of threshold line
+#' @param threshold_linewidth linewidth of threshold line
+#' @param free_y logical; if TRUE, panels use free y scales
+#' @param title optional plot title
+#'
+#' @return A ggplot object
+#' @export
+plot_LBIp <- function(fit,
+                      year = NULL,
+                      gear = NULL,
+                      spr = 40,
+                      thresh = 0.75,
+                      nyears = 1,
+                      scale_sel = TRUE,
+                      observed_fill = "grey85",
+                      observed_colour = "black",
+                      expected_colour = "blue",
+                      threshold_colour = "black",
+                      threshold_linetype = 2,
+                      threshold_linewidth = 0.8,
+                      free_y = FALSE,
+                      title = NULL) {
+
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    stop("Package 'ggplot2' is required.")
+  }
+
+  `%||%` <- function(x, y) if (is.null(x)) y else x
+
+  if (is.null(fit$report$obslen) || is.null(fit$report$sel_gear)) {
+    stop("fit$report$obslen and fit$report$sel_gear are required.")
+  }
+
+  gear_names <- names(fit$report$obslen)
+  if (is.null(gear)) {
+    gear <- gear_names
+  }
+  gear <- as.character(gear)
+
+  if (!all(gear %in% gear_names)) {
+    stop("Unknown gear name(s): ", paste(setdiff(gear, gear_names), collapse = ", "))
+  }
+
+  # preserve requested gear order in facet columns
+  gear <- unique(gear)
+
+  # helper: pull a length-vector from array / matrix / FLQuant-like object
+  get_slice <- function(x, yi = 1L) {
+    dx <- dim(x)
+    if (is.null(dx)) {
+      return(as.numeric(x))
+    }
+    if (length(dx) == 1L) {
+      return(as.numeric(x))
+    }
+    if (length(dx) == 2L) {
+      yi <- max(1L, min(yi, dx[2]))
+      return(as.numeric(x[, yi, drop = TRUE]))
+    }
+    if (length(dx) >= 6L) {
+      yi <- max(1L, min(yi, dx[2]))
+      return(as.numeric(x[, yi, 1, 1, 1, 1, drop = TRUE]))
+    }
+    idx <- rep(list(1), length(dx))
+    idx[[1]] <- seq_len(dx[1])
+    if (length(dx) >= 2L) {
+      yi <- max(1L, min(yi, dx[2]))
+      idx[[2]] <- yi
+    }
+    return(as.numeric(do.call(`[`, c(list(x), idx, list(drop = TRUE)))))
+  }
+
+  yrs_all <- dimnames(fit$report$obslen[[gear[1]]])$year
+  if (is.null(yrs_all)) {
+    dx_obs <- dim(fit$report$obslen[[gear[1]]])
+    yrs_all <- if (!is.null(dx_obs) && length(dx_obs) >= 2L) seq_len(dx_obs[2]) else 1L
+  }
+
+  if (is.null(year)) {
+    year <- yrs_all
+  }
+  year <- as.character(year)
+
+  if (!all(year %in% as.character(yrs_all))) {
+    stop("Unknown year(s): ", paste(setdiff(year, as.character(yrs_all)), collapse = ", "))
+  }
+  year_idx <- match(year, as.character(yrs_all))
+
+  Ftgt <- fspr_flicc(fit, spr = spr, nyears = nyears, input = "F")
+  Nref <- nf_flicc(fit, nyears = nyears, F = Ftgt, scale_sel = scale_sel)
+
+  len_chr <- dimnames(Nref)$len %||% dimnames(fit$report$obslen[[gear[1]]])$len
+  if (is.null(len_chr)) {
+    dx <- dim(fit$report$obslen[[gear[1]]])
+    len_chr <- seq_len(dx[1])
+  }
+  len_num <- as.numeric(len_chr)
+
+  yrs_ref <- dimnames(Nref)$year
+  if (is.null(yrs_ref)) {
+    dx_ref <- dim(Nref)
+    yrs_ref <- if (!is.null(dx_ref) && length(dx_ref) >= 2L) seq_len(dx_ref[2]) else 1L
+  }
+
+  out <- vector("list", length(gear) * length(year))
+  k <- 1L
+
+  for (g in gear) {
+    obs_g_all <- fit$report$obslen[[g]]
+    sel_g_all <- fit$report$sel_gear[[g]]
+
+    yrs_sel <- dimnames(sel_g_all)$year
+    if (is.null(yrs_sel)) {
+      dx_sel <- dim(sel_g_all)
+      yrs_sel <- if (!is.null(dx_sel) && length(dx_sel) >= 2L) seq_len(dx_sel[2]) else 1L
+    }
+
+    for (yy in seq_along(year)) {
+      ylab <- year[yy]
+      yi_obs <- year_idx[yy]
+
+      yi_sel <- match(ylab, as.character(yrs_sel))
+      if (is.na(yi_sel)) yi_sel <- min(yy, length(yrs_sel))
+
+      yi_ref <- match(ylab, as.character(yrs_ref))
+      if (is.na(yi_ref)) yi_ref <- min(yy, length(yrs_ref))
+
+      obs_g  <- get_slice(obs_g_all, yi_obs)
+      sel_g  <- get_slice(sel_g_all, yi_sel)
+      nref_y <- get_slice(Nref, yi_ref)
+
+      if (length(obs_g) != length(len_num) ||
+          length(sel_g) != length(len_num) ||
+          length(nref_y) != length(len_num)) {
+        stop("Length mismatch in year ", ylab, ", gear ", g,
+             ". Check dimensions of obslen, sel_gear, and nf_flicc output.")
+      }
+
+      if (sum(obs_g, na.rm = TRUE) <= 0 || sum(nref_y * sel_g, na.rm = TRUE) <= 0) {
+        next
+      }
+
+      exp_vuln <- nref_y * sel_g
+      obs_prop <- obs_g / sum(obs_g, na.rm = TRUE)
+      exp_prop <- exp_vuln / sum(exp_vuln, na.rm = TRUE)
+
+      keep <- is.finite(len_num) & is.finite(obs_prop) & is.finite(exp_prop)
+      len2 <- len_num[keep]
+      obs2 <- obs_prop[keep]
+      exp2 <- exp_prop[keep]
+
+      if (length(len2) < 2L) next
+
+      len_thr <- len2[-1]
+      exp_thr <- exp2[-1]
+      cums <- cumsum(exp_thr)
+      target <- sum(exp_thr, na.rm = TRUE) * thresh
+      Lref <- len_thr[which.min((target - cums)^2)]
+
+      p_obs_above <- sum(obs2[len2 >= Lref], na.rm = TRUE)
+      p_exp_above <- sum(exp2[len2 >= Lref], na.rm = TRUE)
+
+      out[[k]] <- data.frame(
+        gear = g,
+        year = ylab,
+        len = len2,
+        observed = obs2,
+        expected = exp2,
+        Lref = Lref,
+        pobs = p_obs_above,
+        pref = p_exp_above,
+        stringsAsFactors = FALSE
+      )
+      k <- k + 1L
+    }
+  }
+
+  out <- Filter(Negate(is.null), out)
+  if (!length(out)) {
+    stop("No valid data available for the requested gears/years.")
+  }
+
+  dat <- do.call(rbind, out)
+  dat$gear <- factor(dat$gear, levels = gear)
+  dat$year <- factor(dat$year, levels = year)
+
+  vdat <- unique(dat[c("gear", "year", "Lref", "pobs", "pref")])
+  vdat$label <- sprintf("Lspr = %.1f\nObs = %.2f\nExp = %.2f",
+                        vdat$Lref, vdat$pobs, vdat$pref)
+
+  ytop <- aggregate(pmax(observed, expected) ~ gear + year, data = dat, FUN = max)
+  names(ytop)[3] <- "ymax"
+  vdat <- merge(vdat, ytop, by = c("gear", "year"), all.x = TRUE, sort = FALSE)
+  vdat$gear <- factor(vdat$gear, levels = gear)
+  vdat$year <- factor(vdat$year, levels = year)
+  vdat$ypos <- vdat$ymax * 0.95
+
+  w <- if (length(unique(dat$len)) > 1L) {
+    stats::median(diff(sort(unique(dat$len)))) * 0.9
+  } else {
+    0.9
+  }
+
+  p <- ggplot2::ggplot(dat, ggplot2::aes(x = len)) +
+    ggplot2::geom_col(
+      ggplot2::aes(y = observed),
+      fill = observed_fill,
+      colour = observed_colour,
+      width = w
+    ) +
+    ggplot2::geom_line(
+      ggplot2::aes(y = expected),
+      colour = expected_colour,
+      linewidth = 1
+    ) +
+    ggplot2::geom_vline(
+      data = vdat,
+      ggplot2::aes(xintercept = Lref),
+      colour = threshold_colour,
+      linetype = threshold_linetype,
+      linewidth = threshold_linewidth,
+      inherit.aes = FALSE
+    ) +
+    ggplot2::geom_text(
+      data = vdat,
+      ggplot2::aes(x = Lref, y = ypos, label = label),
+      inherit.aes = FALSE,
+      hjust = -0.05,
+      vjust = 1,
+      size = 3
+    ) +
+    ggplot2::facet_grid(
+      year ~ gear,
+      scales = if (free_y) "free_y" else "fixed"
+    ) +
+    ggplot2::labs(
+      x = "Length",
+      y = "Proportion",
+      title = if (is.null(title)) {
+        paste0("Observed vs expected length composition at Fspr", spr)
+      } else {
+        title
+      },
+      subtitle = paste0(
+        "Expected curve from nf_flicc() at SPR", spr,
+        "; dashed line shows Lspr threshold (thresh = ", thresh, ")"
+      )
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      strip.background = ggplot2::element_rect(fill = "grey95"),
+      panel.grid.minor = ggplot2::element_blank()
+    )
+
+  p
+}
