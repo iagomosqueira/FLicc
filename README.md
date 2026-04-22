@@ -653,8 +653,10 @@ Future developments could include:
 
 ## References
 
-- Griffiths, C. A., Winker, H., Bartolino, V., Wennhage, H., Orio, A., and Cardinale, M. 2023. Including older fish in fisheries management: A new age-based indicator and reference point for exploited fish stocks. *Fish and Fisheries*. :contentReference[oaicite:17]{index=17}
-- Goodyear, C. P. 2015/2016. NZ50 and notes on the estimation of NZ50. Early conceptual work on threshold-based metrics for large fish in the catch. 
-- Kell, L. T. et al. 2007. FLR: an open-source framework for the evaluation and development of management strategies.
-- Kristensen, K. et al. 2016. TMB: Automatic differentiation and Laplace approximation.
-- Medley, P. A. H. 2025. A new Bayesian catch curve stock assessment model for the analysis of length data from multi-gear fisheries. :contentReference[oaicite:19]{index=19}
+- Griffiths, C.A., Winker, H., Bartolino, V., Wennhage, H., Orio, A. and Cardinale, M., 2024. Including older fish in fisheries management: A new age‐based indicator and reference point for exploited fish stocks. Fish and Fisheries, 25(1), pp.18-37.
+- Goodyear, C. P. 2015a. Understanding maximum size in the catch: Atlantic blue marlin as an example. Transactions of the American Fisheries Society, 144:274-282.
+- Hordyk, A., Ono, K., Valencia, S., Loneragan, N. and Prince, J., 2015. A novel length-based empirical estimation method of spawning potential ratio (SPR), and tests of its performance, for small-scale, data-poor fisheries. ICES Journal of Marine Science, 72(1), pp.217-231.
+- Hordyk, A.R., Ono, K., Prince, J.D. and Walters, C.J., 2016. A simple length-structured model based on life history ratios and incorporating size-dependent selectivity: application to spawning potential ratios for data-poor stocks. Canadian Journal of Fisheries and Aquatic Sciences, 73(12), pp.1787-1799.
+- Kell, L.T., Mosqueira, I., Grosjean, P., Fromentin, J.M., Garcia, D., Hillary, R., Jardim, E., Mardle, S., Pastoors, M.A., Poos, J.J. and Scott, F., 2007. FLR: an open-source framework for the evaluation and development of management strategies. ICES Journal of Marine Science, 64(4), pp.640-646.
+- Kristensen, K., Nielsen, A., Berg, C.W., Skaug, H. and Bell, B.M., 2016. TMB: automatic differentiation and Laplace approximation. Journal of statistical software, 70, pp.1-21.
+- Medley, P.A., 2025. A new Bayesian catch curve stock assessment model for the analysis of length data from multi-gear fisheries. ICES Journal of Marine Science, 82(12), p.fsaf224.
