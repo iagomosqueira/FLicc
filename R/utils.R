@@ -509,57 +509,107 @@ LLflicc <- function(object, ...) {
 
 
 
-#' Rescale length frequencies to effective sample size by gear
+#' Complete missing length bins across gears and years
 #'
-#' Rescales an \code{FLQuant} of length frequencies so that, within each
-#' year-gear-iter combination, the total over length equals a user-supplied
-#' effective sample size (ESS). This is useful for composition-based likelihoods
-#' such as multinomial or Dirichlet-multinomial, where raw sample sizes are not
-#' intended to determine the weight of the fit.
+#' Standardises a wide-format length-frequency table so that all gears share
+#' the same length-bin grid. Missing bin combinations are added and filled with
+#' zero counts, which is useful before converting length-frequency data to
+#' \code{FLQuantLen}-style inputs for \code{fiticc()}.
 #'
-#' @param lfd An \code{FLQuant} of length frequencies with at least dimensions
-#'   \code{len}, \code{year}, \code{unit}, and \code{iter}.
-#' @param ess.g Numeric scalar or vector of effective sample sizes by gear. If a
-#'   scalar is supplied, it is recycled across gears. If a vector is supplied,
-#'   its length must match the number of gears in the \code{unit} dimension.
-#'
-#' @return An \code{FLQuant} with the same dimensions as \code{lfd}, but scaled
-#'   so that totals over \code{len} equal the requested ESS for each gear.
-#'
-#' @examples
-#' \dontrun{
-#' lfd_ess <- lfdess(lfd, ess.g = c(Trawl = 150, Gillnet = 100))
+#' The function assumes the input is in wide format with:
+#' \itemize{
+#'   \item one column containing length-bin values,
+#'   \item one column identifying gear,
+#'   \item all remaining columns representing years or other count fields.
 #' }
 #'
+#' Column names beginning with \code{"X"} are cleaned automatically, so year
+#' columns such as \code{"X2019"} become \code{"2019"}.
+#'
+#' If \code{by} is not supplied, the function infers the bin width as the
+#' smallest positive difference between unique length values in
+#' \code{len_col}. This works well when the intended bin spacing is constant
+#' but some bins are missing from one or more gears.
+#'
+#' @param dat A \code{data.frame} in wide format containing length-frequency
+#'   data.
+#' @param len_col Character string giving the name of the length column.
+#'   Default is \code{"len"}.
+#' @param gear_col Character string giving the name of the gear column.
+#'   Default is \code{"gear"}.
+#' @param by Optional numeric value giving the common bin width. If
+#'   \code{NULL}, the width is inferred from the smallest positive spacing in
+#'   the observed length values.
+#'
+#' @return A \code{data.frame} with a completed common length grid across all
+#'   gears. Missing year/count values are filled with zero. The output is sorted
+#'   by gear and length.
+#'
+#' @details
+#' This helper is intended for cases where different gears appear to have
+#' unequal spacing only because empty bins were omitted from the original table.
+#' Rather than interpolating data, the function reconstructs the full length
+#' sequence and inserts the missing bins explicitly with zero counts.
+#'
+#' This is generally preferable to interpolation when the original bins already
+#' represent the intended sampling design.
+#'
+#' @examples
+#' dat <- data.frame(
+#'   len  = c(9.0, 9.5, 10.5, 11.0, 9.0, 10.0, 11.0),
+#'   gear = c("Trawl", "Trawl", "Trawl", "Trawl",
+#'            "Gillnet", "Gillnet", "Gillnet"),
+#'   X2019 = c(0, 4, 0, 2, 1, 3, 0),
+#'   X2020 = c(0, 0, 1, 0, 0, 2, 4)
+#' )
+#'
+#' # infer bin width from the data
+#' complete_lfd_bins(dat)
+#'
+#' # or specify the intended bin width directly
+#' complete_lfd_bins(dat, by = 0.5)
+#'
 #' @export
-lfdess <- function(lfd, ess.g=100) {
-  if (!inherits(lfd, "FLQuants")) {
-    stop("lfd must be an FLQuant")
+
+complete_lfd_bins <- function(dat, len_col = "len", gear_col = "gear", by = NULL) {
+  stopifnot(is.data.frame(dat))
+  stopifnot(len_col %in% names(dat), gear_col %in% names(dat))
+  names(dat) <- sub("^X", "", names(dat))
+
+  year_cols <- setdiff(names(dat), c(len_col, gear_col))
+
+  # infer bin width from smallest positive difference if not given
+  if (is.null(by)) {
+    ulen <- sort(unique(dat[[len_col]]))
+    dd <- diff(ulen)
+    dd <- dd[dd > 0]
+    by <- min(dd, na.rm = TRUE)
   }
 
-  dn <- dimnames(lfd[[1]])
-  gears <- dn$unit
-  years <- dn$year
-  seasons <- dn$season
-  areas <- dn$area
-  iters <- dn$iter
+  # common master grid across all gears
+  len_grid <- seq(
+    from = min(dat[[len_col]], na.rm = TRUE),
+    to   = max(dat[[len_col]], na.rm = TRUE),
+    by   = by
+  )
 
-  ng <- length(gears)
+  template <- expand.grid(
+    len  = len_grid,
+    gear = unique(dat[[gear_col]]),
+    KEEP.OUT.ATTRS = FALSE,
+    stringsAsFactors = FALSE
+  )
+  names(template) <- c(len_col, gear_col)
 
-  if (length(ess.g) == 1 && length(lfd)>1) {
-    ess.g <- rep(as.numeric(ess.g), ng)
-    names(ess.g) <- gears
-  } else {
-    ess.g <- as.numeric(ess.g)
+  out <- merge(template, dat, by = c(len_col, gear_col), all.x = TRUE, sort = TRUE)
 
+  # replace missing counts by zero
+  for (yy in year_cols) {
+    out[[yy]][is.na(out[[yy]])] <- 0
   }
 
-  out <- FLQuants(Map(function(x,y){
-    res <- x%/%apply(x,2:6,sum,na.rm=T)
-    res*y
-  },x=lfd,y=ess.g))
-
-
+  out <- out[order(out[[gear_col]], out[[len_col]]), ]
+  rownames(out) <- NULL
   out
 }
 
@@ -667,8 +717,9 @@ FLQuantLen <- function(dat,midL=FALSE,unit="cm",by_len=NULL) {
   if(midL) half <- (lfd[2,1]-lfd[1,1])/2
   names(lfd)[2] <- "gear"
 
-
+  # check dsata
   lfd <- complete_lfd_bins(lfd, by = by_len)
+
   flqs <- FLQuants(lapply(gear,function(x){
   FLQuant(as.matrix(lfd[lfd$gear%in%x,-c(1:2)]),dimnames=list(len=ac((lfd[lfd$gear%in%x,1]-half)/div), year=colnames(lfd)[-c(1:2)]),unit="cm")
 
@@ -759,3 +810,58 @@ lfd_long_to_wide <- function(df) {
   rownames(out) <- NULL
   out
 }
+
+#' Rescale length frequencies to effective sample size by gear
+#'
+#' Rescales an \code{FLQuant} of length frequencies so that, within each
+#' year-gear-iter combination, the total over length equals a user-supplied
+#' effective sample size (ESS). This is useful for composition-based likelihoods
+#' such as multinomial or Dirichlet-multinomial, where raw sample sizes are not
+#' intended to determine the weight of the fit.
+#'
+#' @param lfd An \code{FLQuant} of length frequencies with at least dimensions
+#'   \code{len}, \code{year}, \code{unit}, and \code{iter}.
+#' @param ess.g Numeric scalar or vector of effective sample sizes by gear. If a
+#'   scalar is supplied, it is recycled across gears. If a vector is supplied,
+#'   its length must match the number of gears in the \code{unit} dimension.
+#'
+#' @return An \code{FLQuant} with the same dimensions as \code{lfd}, but scaled
+#'   so that totals over \code{len} equal the requested ESS for each gear.
+#'
+#' @examples
+#' \dontrun{
+#' lfd_ess <- lfdess(lfd, ess.g = c(Trawl = 150, Gillnet = 100))
+#' }
+#'
+#' @export
+lfdess <- function(lfd, ess.g=100) {
+  if (!inherits(lfd, "FLQuants")) {
+    stop("lfd must be an FLQuant")
+  }
+
+  dn <- dimnames(lfd[[1]])
+  gears <- dn$unit
+  years <- dn$year
+  seasons <- dn$season
+  areas <- dn$area
+  iters <- dn$iter
+
+  ng <- length(gears)
+
+  if (length(ess.g) == 1 && length(lfd)>1) {
+    ess.g <- rep(as.numeric(ess.g), ng)
+    names(ess.g) <- gears
+  } else {
+    ess.g <- as.numeric(ess.g)
+
+  }
+
+  out <- FLQuants(Map(function(x,y){
+    res <- x%/%apply(x,2:6,sum,na.rm=T)
+    res*y
+  },x=lfd,y=ess.g))
+
+
+  out
+}
+
