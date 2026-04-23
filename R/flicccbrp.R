@@ -41,7 +41,8 @@ eqstklen <- function(fit, nyears = 1,
                              spawn_time = 0,
                              s = 0.7,spr.tgt=40) {
 
-  if(is.null(Fseq)) Fseq = seq(0,an(fit$report$lhpar["M"])*5 , length.out = 101)
+  fcur <- fcur_flicc(fit)
+  if(is.null(Fseq)) Fseq = seq(0,max(an(fit$report$lhpar["M"])*5,fcur*1.05) , length.out = 101)
 
   prbrp <- prbrp_flicc(fit, nyears = nyears, Fseq = Fseq,
         scale_sel = TRUE, spawn_time = spawn_time)

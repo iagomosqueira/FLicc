@@ -16,7 +16,7 @@ lfd <- FLQuantLen(LFD.df,unit="cm",midL=FALSE)
 plot_lfd(lfd,type="relmax")
 
 # Normalized to maximum
-plot_lfd(lfd,type="relmax")
+plot_lfd(lfd)
 
 
 # Specify Life History
@@ -51,13 +51,15 @@ plot_m(m_stks)
 
 # Fit model
 fit <- fiticc(lfd, stklen,sel_fun=c("dsnormal","logistic"),catch_by_gear =c(0.7,0.3),
-              settings=list(prior_sigmaF = c(log(0.5), 0.3,1)))
+              settings=list(prior_sigmaF = c(log(0.5), 0.3,1)),by_year = T)
 # log-likelihood
 ll <- LLflicc(fit)
 ll[[1]]
 AIC(ll)
 BIC(ll)
 
+
+plot_spr(fit)
 # FLReport structure
 summary(fit$report)
 fcur_flicc(fit)
@@ -78,6 +80,7 @@ stkl <- flicc_stklen(fit)
 # Plot, e.g., fishery selectivity weighted by the ratio of catches
 plot_sel(stkl)
 
+plot(apply(z(stkl),2,mean))
 
 # Equilibrium dynamics
 eqstk <- eqstklen(fit,s=0.75)

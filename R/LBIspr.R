@@ -122,7 +122,7 @@ LBIspr<- function(fit, gear = NULL, spr = 40, thresh = 0.75,
     idx
     },x=flqs,y= fit$report$sel_gear))
 
- names(Lref) <- gear_names
+ names(Lref) <- gear
  attr(out,"LFDref") <- LFDref
  attr(out,"Lref") <- Lref
 

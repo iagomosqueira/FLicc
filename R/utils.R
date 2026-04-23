@@ -564,6 +564,49 @@ lfdess <- function(lfd, ess.g=100) {
 }
 
 
+complete_lfd_bins <- function(dat, len_col = "len", gear_col = "gear", by = NULL) {
+  stopifnot(is.data.frame(dat))
+  stopifnot(len_col %in% names(dat), gear_col %in% names(dat))
+  names(dat) <- sub("^X", "", names(dat))
+
+
+  year_cols <- setdiff(names(dat), c(len_col, gear_col))
+
+  # infer bin width from smallest positive difference if not given
+  if (is.null(by)) {
+    ulen <- sort(unique(dat[[len_col]]))
+    dd <- diff(ulen)
+    dd <- dd[dd > 0]
+    by <- min(dd, na.rm = TRUE)
+  }
+
+  # common master grid across all gears
+  len_grid <- seq(
+    from = min(dat[[len_col]], na.rm = TRUE),
+    to   = max(dat[[len_col]], na.rm = TRUE),
+    by   = by
+  )
+
+  template <- expand.grid(
+    len  = len_grid,
+    gear = unique(dat[[gear_col]]),
+    KEEP.OUT.ATTRS = FALSE,
+    stringsAsFactors = FALSE
+  )
+  names(template) <- c(len_col, gear_col)
+
+  out <- merge(template, dat, by = c(len_col, gear_col), all.x = TRUE, sort = TRUE)
+
+  # replace missing counts by zero
+  for (yy in year_cols) {
+    out[[yy]][is.na(out[[yy]])] <- 0
+  }
+
+  out <- out[order(out[[gear_col]], out[[len_col]]), ]
+  rownames(out) <- NULL
+  out
+}
+
 #' Convert wide length-frequency tables to FLQuants
 #'
 #' Converts a wide \code{data.frame} of length-frequency observations into
@@ -609,14 +652,14 @@ lfdess <- function(lfd, ess.g=100) {
 #'   `2021` = c(12, 18, 17, 4, 9, 7)
 #' )
 #'
-#' lfd_flq <- FLQuantLen(lfd_df, midL = TRUE, unit = "cm")
+#' lfd_flq <- FLQuantLen(lfd_df, midL = TRUE, unit = "cm",step=1)
 #' lfd_flq
 #' }
 #'
 #' @export
 
-FLQuantLen <- function(lfd,midL=FALSE,unit="cm") {
-
+FLQuantLen <- function(dat,midL=FALSE,unit="cm",by_len=NULL) {
+  lfd=dat
   gear <- unique(lfd[,2])
   half <- 0
   div <- 1
@@ -624,6 +667,8 @@ FLQuantLen <- function(lfd,midL=FALSE,unit="cm") {
   if(midL) half <- (lfd[2,1]-lfd[1,1])/2
   names(lfd)[2] <- "gear"
 
+
+  lfd <- complete_lfd_bins(lfd, by = by_len)
   flqs <- FLQuants(lapply(gear,function(x){
   FLQuant(as.matrix(lfd[lfd$gear%in%x,-c(1:2)]),dimnames=list(len=ac((lfd[lfd$gear%in%x,1]-half)/div), year=colnames(lfd)[-c(1:2)]),unit="cm")
 

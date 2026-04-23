@@ -32,6 +32,7 @@ export(m_gislason)
 export(lfdess)
 export(lfd_long_to_wide)
 export(FLQuantLen)
+export(lfd_long_to_wide)
 
 
 # --- Core FLicc recursion & helpers ---

@@ -11,7 +11,7 @@ plot_len(
   by_gear = FALSE,
   title = NULL,
   observed_fill = "grey75",
-  observed_colour = "black",
+  observed_colour = "grey60",
   fitted_colour = "blue",
   fitted_linewidth = 1,
   len_by = 10
