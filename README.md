@@ -2,7 +2,7 @@
 
 **FLicc: FLR tools for length-interval catch-curve models**
 
-`FLicc` is an FLR-friendly TMB implementation and extension of the multi-gear length-interval catch-curve framework developed in `fishblicc`. It retains the biological core of the original equilibrium model, but adds a fast penalized-likelihood workflow in Template Model Builder (TMB), multi-year fitting, FLR integration, and a growing set of equilibrium and indicator tools. The original multi-gear formulation was designed to estimate mortality-at-length, selectivity, spawning potential ratio (SPR), and yield-per-recruit from length compositions grouped by gear. A brief introduction with illustrations of the FLicc utilities is provided [here](https://github.com/Henning-Winker/FLicc/blob/main/docs/FLicc_Intro.pdf) 
+`FLicc` is an FLR-friendly TMB implementation and extension of the multi-gear length-interval catch-curve framework developed in `fishblicc`. It retains the biological core of the original equilibrium model, but adds a fast penalized-likelihood workflow in Template Model Builder (TMB), multi-year fitting, FLR integration, and a growing set of equilibrium and indicator tools. The original multi-gear formulation was designed to estimate mortality-at-length, selectivity, spawning potential ratio (SPR), and yield-per-recruit from length compositions grouped by gear. A brief introduction with illustrations of the FLicc utilities is provided [here](https://github.com/Henning-Winker/FLicc/blob/main/docs/FLicc_Intro.pdf).
 
 ---
 
