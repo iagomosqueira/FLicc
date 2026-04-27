@@ -572,6 +572,7 @@ LLflicc <- function(object, ...) {
 #' @export
 
 complete_lfd_bins <- function(dat, len_col = "len", gear_col = "gear", by = NULL) {
+  dat <- as.data.frame(dat)
   stopifnot(is.data.frame(dat))
   stopifnot(len_col %in% names(dat), gear_col %in% names(dat))
   names(dat) <- sub("^X", "", names(dat))
@@ -709,6 +710,8 @@ complete_lfd_bins <- function(dat, len_col = "len", gear_col = "gear", by = NULL
 #' @export
 
 FLQuantLen <- function(dat,midL=FALSE,unit="cm",by_len=NULL) {
+  dat <- as.data.frame(dat)
+
   lfd=dat
   gear <- unique(lfd[,2])
   half <- 0
